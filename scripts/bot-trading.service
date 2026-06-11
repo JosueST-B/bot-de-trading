@@ -1,0 +1,16 @@
+[Unit]
+Description=Binance Trading Bot Live Loop
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/bot-de-trading
+ExecStart=/home/ubuntu/bot-de-trading/venv/bin/python main.py live-loop --confirm-live I_UNDERSTAND_LIVE_RISK --sleep-seconds 300
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

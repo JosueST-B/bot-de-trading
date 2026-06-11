@@ -1,0 +1,16 @@
+[Unit]
+Description=Binance Trading Bot Dashboard
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/bot-de-trading
+ExecStart=/home/ubuntu/bot-de-trading/venv/bin/python main.py dashboard
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
