@@ -1,18 +1,17 @@
 from __future__ import annotations
 
-import os
 import json
 import logging
-import sqlite3
 from dataclasses import asdict, is_dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 import requests
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 
 from bot.config import BotConfig
+from bot.db import create_db_engine
 
 
 def setup_logging(cfg: BotConfig) -> None:
@@ -43,16 +42,9 @@ def _json_default(value: Any) -> str:
 
 class EventStore:
     def __init__(self, db_path: str) -> None:
-        db_url = os.getenv("DATABASE_URL")
-        if db_url:
-            if db_url.startswith("postgres://"):
-                db_url = db_url.replace("postgres://", "postgresql://", 1)
-            self.engine = create_engine(db_url, echo=False)
-            self.is_sqlite = False
-        else:
-            self.db_path = Path(db_path)
-            self.engine = create_engine(f"sqlite:///{db_path}", echo=False)
-            self.is_sqlite = True
+        self.db_path = Path(db_path)
+        self.engine = create_db_engine(db_path)
+        self.is_sqlite = self.engine.dialect.name == "sqlite"
         self._init_db()
 
     def _init_db(self) -> None:
@@ -152,6 +144,63 @@ class EventStore:
     def delete_state(self, key: str) -> None:
         with self.engine.begin() as conn:
             conn.execute(text("DELETE FROM bot_state WHERE key = :key"), {"key": key})
+
+    def acquire_lease(self, key: str, owner: str, ttl_seconds: int) -> bool:
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(seconds=max(1, ttl_seconds))
+        owner_payload = json.dumps({"owner": owner}, ensure_ascii=False)
+        with self.engine.begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO bot_state (key, updated_ts, value_json)
+                    VALUES (:key, :updated_ts, :value_json)
+                    ON CONFLICT(key) DO UPDATE SET
+                        updated_ts = EXCLUDED.updated_ts,
+                        value_json = EXCLUDED.value_json
+                    WHERE bot_state.updated_ts < :cutoff
+                       OR bot_state.value_json = :value_json
+                    """
+                ),
+                {
+                    "key": key,
+                    "updated_ts": now.isoformat(),
+                    "value_json": owner_payload,
+                    "cutoff": cutoff.isoformat(),
+                },
+            )
+            current = conn.execute(
+                text("SELECT value_json FROM bot_state WHERE key = :key"),
+                {"key": key},
+            ).fetchone()
+        return current is not None and current[0] == owner_payload
+
+    def refresh_lease(self, key: str, owner: str) -> bool:
+        owner_payload = json.dumps({"owner": owner}, ensure_ascii=False)
+        with self.engine.begin() as conn:
+            result = conn.execute(
+                text(
+                    """
+                    UPDATE bot_state
+                    SET updated_ts = :updated_ts
+                    WHERE key = :key AND value_json = :value_json
+                    """
+                ),
+                {
+                    "key": key,
+                    "updated_ts": datetime.now(timezone.utc).isoformat(),
+                    "value_json": owner_payload,
+                },
+            )
+        return bool(result.rowcount)
+
+    def release_lease(self, key: str, owner: str) -> None:
+        owner_payload = json.dumps({"owner": owner}, ensure_ascii=False)
+        with self.engine.begin() as conn:
+            conn.execute(
+                text("DELETE FROM bot_state WHERE key = :key AND value_json = :value_json"),
+                {"key": key, "value_json": owner_payload},
+            )
 
     def states(self) -> list[dict[str, Any]]:
         with self.engine.connect() as conn:
@@ -316,6 +365,7 @@ class EventStore:
 
 class TelegramNotifier:
     def __init__(self, cfg: BotConfig) -> None:
+        self.cfg = cfg
         self.enabled = (
             cfg.telegram_enabled
             and bool(cfg.telegram_bot_token)
@@ -326,8 +376,35 @@ class TelegramNotifier:
         self.session = requests.Session()
         self.session.trust_env = False
 
-    def send(self, text: str) -> bool:
+    @staticmethod
+    def escape_html(text: str) -> str:
+        if not isinstance(text, str):
+            text = str(text)
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    def send(self, text: str, category: str = "general") -> bool:
         if not self.enabled:
+            return False
+
+        cat = category.lower()
+        if cat == "general":
+            text_lower = text.lower()
+            if "buy" in text_lower:
+                cat = "buys"
+            elif "sell" in text_lower:
+                cat = "sells"
+            elif "error" in text_lower or "exception" in text_lower or "traceback" in text_lower:
+                cat = "errors"
+            elif "tune" in text_lower or "recalibration" in text_lower:
+                cat = "autotune"
+
+        if cat == "buys" and not getattr(self.cfg, "telegram_notify_buys", True):
+            return False
+        if cat == "sells" and not getattr(self.cfg, "telegram_notify_sells", True):
+            return False
+        if cat == "autotune" and not getattr(self.cfg, "telegram_notify_autotune", True):
+            return False
+        if cat == "errors" and not getattr(self.cfg, "telegram_notify_errors", True):
             return False
 
         url = f"https://api.telegram.org/bot{self.token}/sendMessage"
@@ -496,9 +573,9 @@ class Telemetry:
         logging.info("%s %s %s %s", mode, symbol, event, payload)
         self.store.record(mode, symbol, event, payload)
 
-    def alert(self, text: str) -> None:
+    def alert(self, text: str, category: str = "general") -> None:
         try:
-            sent = self.notifier.send(text)
+            sent = self.notifier.send(text, category=category)
             if sent:
                 logging.info("Telegram alert sent.")
         except Exception as exc:

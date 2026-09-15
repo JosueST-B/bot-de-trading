@@ -18,6 +18,7 @@ class Position:
     quantity: float
     stop_price: float
     take_profit_price: float
+    entry_reason: str = ""
 
 
 @dataclass

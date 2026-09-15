@@ -29,6 +29,7 @@ def _position_to_dict(position: Position | None) -> dict[str, Any] | None:
         "quantity": position.quantity,
         "stop_price": position.stop_price,
         "take_profit_price": position.take_profit_price,
+        "entry_reason": getattr(position, "entry_reason", ""),
     }
 
 
@@ -41,6 +42,7 @@ def _position_from_dict(payload: dict[str, Any] | None) -> Position | None:
         quantity=float(payload["quantity"]),
         stop_price=float(payload["stop_price"]),
         take_profit_price=float(payload["take_profit_price"]),
+        entry_reason=str(payload.get("entry_reason", "")),
     )
 
 
@@ -238,6 +240,7 @@ class PaperTrader:
                             quantity=qty,
                             stop_price=stop,
                             take_profit_price=take,
+                            entry_reason=signal.reason,
                         )
                         self.risk.register_entry(now)
                         self.last_processed_close_time = now
@@ -283,6 +286,7 @@ class PaperTrader:
                 higher_analysis_df,
                 macro_df=macro_analysis_df,
                 in_position=True,
+                entry_reason=self.position.entry_reason,
             )
             if signal.action == "exit":
                 exit_price = close * (1 - self.cfg.slippage)

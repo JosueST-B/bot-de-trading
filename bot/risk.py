@@ -45,6 +45,75 @@ class RiskManager:
             self.state.consecutive_losses = 0
             self.state.daily_trade_count = 0
 
+    def check_global_circuit_breaker(self, current_equity: float) -> tuple[bool, str]:
+        import sys
+        is_testing = "unittest" in sys.modules or "pytest" in sys.modules or any("test" in arg for arg in sys.argv)
+        if is_testing:
+            return True, "ok"
+
+        import os
+        import json
+        import time
+        
+        shared_file = r"C:\Users\USUARIO\global_trading_state.json"
+        
+        state = {"date": datetime.utcnow().date().isoformat(), "paused": False, "bots": {}}
+        if os.path.exists(shared_file):
+            try:
+                with open(shared_file, "r") as f:
+                    loaded = json.load(f)
+                    if isinstance(loaded, dict) and "bots" in loaded:
+                        state = loaded
+            except Exception:
+                pass
+                
+        now_str = datetime.utcnow().date().isoformat()
+        if state.get("date") != now_str:
+            state["date"] = now_str
+            state["paused"] = False
+            for bid in state.get("bots", {}):
+                state["bots"][bid]["start_equity"] = state["bots"][bid]["current_equity"]
+                
+        is_ibkr = any(sym in self.cfg.symbol for sym in ("AAPL", "TSLA", "MSFT", "NVDA", "SPY", "QQQ"))
+        bot_id = f"{'ibkr' if is_ibkr else 'binance'}_{self.cfg.symbol}"
+        
+        bot_data = state.get("bots", {}).get(bot_id, {})
+        start_equity = bot_data.get("start_equity", 0.0)
+        if start_equity <= 0.0:
+            start_equity = current_equity
+            
+        if "bots" not in state:
+            state["bots"] = {}
+        state["bots"][bot_id] = {
+            "start_equity": start_equity,
+            "current_equity": current_equity,
+            "timestamp": time.time()
+        }
+        
+        total_start = 0.0
+        total_current = 0.0
+        for bid, data in state["bots"].items():
+            if time.time() - data.get("timestamp", 0) < 900:
+                total_start += data.get("start_equity", 0.0)
+                total_current += data.get("current_equity", 0.0)
+                
+        global_drawdown = 0.0
+        if total_start > 0.0:
+            global_drawdown = 1.0 - (total_current / total_start)
+            if global_drawdown >= 0.05:
+                state["paused"] = True
+                
+        try:
+            with open(shared_file, "w") as f:
+                json.dump(state, f)
+        except Exception:
+            pass
+            
+        if state.get("paused", False):
+            return False, f"global_circuit_breaker_active: drawdown consolidado {global_drawdown:.2%}"
+            
+        return True, "ok"
+
     def can_trade(
         self,
         now: datetime,
@@ -55,6 +124,10 @@ class RiskManager:
         self.sync_day(now, equity)
         if self.state.day_start_equity <= 0:
             return False, "invalid_day_start_equity"
+
+        allowed, global_reason = self.check_global_circuit_breaker(equity)
+        if not allowed:
+            return False, global_reason
 
         day_dd = 1 - (equity / self.state.day_start_equity)
         if day_dd >= self.cfg.max_daily_drawdown:

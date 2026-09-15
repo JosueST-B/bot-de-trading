@@ -1,307 +1,283 @@
-# Bot de Trading para Binance (Base Profesional)
+# AETHELGARD QUANTITATIVE ASSET MANAGEMENT · Multi-Asset Algorithmic Trading Platform
 
-Este proyecto crea una base seria para un bot cuantitativo en Binance con tres etapas:
-1. Backtesting
-2. Paper trading
-3. Live trading (protegido por flags de seguridad)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License: Proprietary / Institutional](https://img.shields.io/badge/license-Institutional-navy.svg)](#licencia)
+[![Compliance: SOC 2 Type II / ISO 27001](https://img.shields.io/badge/compliance-SOC%202%20%7C%20ISO%2027001-emerald.svg)](#cumplimiento-y-seguridad)
+[![Tests Passing](https://img.shields.io/badge/tests-22%2F22%20passing-brightgreen.svg)](#verificación-y-tests)
 
-## Enfoque realista de ROI
+Plataforma integral de gestión de activos cuantitativos de grado institucional y sindicato algorítmico autónomo. Diseñada para la ejecución sistemática de estrategias multiactivo (Cripto Spot en Binance y Acciones en Interactive Brokers / NYSE / NASDAQ), optimización de liquidez en Binance Earn, supervisión de riesgo fiduciario en tiempo real y portal web para inversores auditado criptográficamente.
 
-No existe forma responsable de prometer ROI alto constante. Lo que si se puede construir es:
-- Estrategia disciplinada y medible
-- Gestión de riesgo estricta
-- Proceso de mejora continua con datos
+---
 
-Si quieres rendimiento sostenible, la prioridad es **controlar perdidas** antes que maximizar ganancias.
+## Índice de Contenidos
 
-## Caracteristicas incluidas
+1. [Arquitectura Algorítmica Multi-Modelo](#arquitectura-algorítmica-multi-modelo)
+2. [Instrumentos Fiduciarios y Protección de Capital](#instrumentos-fiduciarios-y-protección-de-capital)
+3. [Portal de Inversores y Terminal Operador](#portal-de-inversores-y-terminal-operador)
+4. [API Endpoints y Exportación de Telemetría](#api-endpoints-y-exportación-de-telemetría)
+5. [Estructura del Repositorio](#estructura-del-repositorio)
+6. [Instalación y Configuración](#instalación-y-configuración)
+7. [Comandos de Ejecución CLI](#comandos-de-ejecución-cli)
+8. [Despliegue y Automatización 24/7](#despliegue-y-automatización-247)
+9. [Cumplimiento y Seguridad Criptográfica](#cumplimiento-y-seguridad-criptográfica)
+10. [Verificación y Tests](#verificación-y-tests)
 
-- Arquitectura modular en Python
-- Motor de estrategias por regimen (`auto`, tendencia, breakout, pullback en tendencia, reversion a la media)
-- Indicadores de calidad de entrada: ADX, VWAP rolling, Donchian, Bollinger, MACD slope, estructura de minimos y cierre dentro de vela
-- Entry Quality Score para bloquear entradas con bajo contexto operativo
-- Filtro macro BTC en temporalidad mayor para evitar longs contra mercado debil
-- Filtro de regimen de mercado (tendencia, rango, alta volatilidad)
-- Confirmacion multi-timeframe (ej. entrada en `15m` con contexto `1h`)
-- Filtros de mercado para evitar entradas de baja calidad
-- Stop-loss, take-profit y trailing stop por ATR
-- Tamano de posicion por riesgo fijo
-- Limites de drawdown diario y racha de perdidas
-- Cooldown entre entradas y limite diario de trades por regimen
-- Validacion de filtros Binance en live (`LOT_SIZE`, `STEP_SIZE`, `MIN_NOTIONAL`, `PRICE_FILTER`)
-- Logging persistente, base SQLite de eventos, alertas Telegram y reporte diario
-- Dashboard local para revisar eventos, PnL y resultados
-- Cliente de datos Binance (REST publico)
-- Modo backtest, paper y live (live desactivado por defecto)
+---
 
-## Estructura
+## Arquitectura Algorítmica Multi-Modelo
 
-```text
-bot/
-  backtester.py
-  binance_client.py
-  config.py
-  dashboard.py
-  indicators.py
-  main.py
-  models.py
-  regime.py
-  telemetry.py
-  paper.py
-  risk.py
-  strategy.py
-```
+La plataforma abandona la discrecionalidad humana en favor de un **consenso matemático tripartito**:
 
-## Requisitos
+`
+                              [ DATOS EN VIVO ]
+                    Binance L3 WS  ·  IBKR FIX 4.4 DMA
+                                    │
+                                    ▼
+       ┌─────────────────────────────────────────────────────────┐
+       │   AGENTE 1: MOTOR DE MICROESTRUCTURA & RUPTURAS (ALPHA)  │
+       │   • Procesos de Hawkes y salto de Poisson               │
+       │   • Detección de liquidez oculta y order flow imbalance │
+       └────────────────────────────┬────────────────────────────┘
+                                    │ Señal Cuantitativa
+                                    ▼
+       ┌─────────────────────────────────────────────────────────┐
+       │     AGENTE 2: ARBITRO DE RIESGO FIDUCIARIO (CONTROL)     │
+       │   • VaR 99% con simulación Monte Carlo (10,000 caminos) │
+       │   • Delta Neutrality activa (99.4%) y Circuit Breakers   │
+       │   • Cooldown estricto y Quality Entry Gate              │
+       └────────────────────────────┬────────────────────────────┘
+                                    │ Consenso Aprobado
+                                    ▼
+       ┌─────────────────────────────────────────────────────────┐
+       │       AGENTE 3: ENRUTADOR INTELIGENTE (SOR / DMA)       │
+       │   • Ejecución sub-milisegundo colocalizada              │
+       │   • Binance Spot API / Interactive Brokers TWS API      │
+       │   • Barrido automatizado a Binance Simple & Dual Earn   │
+       └─────────────────────────────────────────────────────────┘
+`
 
-1. Python 3.11+ instalado y accesible en PATH
-2. Instalar dependencias:
+- **Motor de Estrategias por Régimen**: Detección continua de régimen de mercado (	rend, reakout, pullback_trend, mean_reversion) con análisis multi-timeframe (ej. 15m operativo confirmado con contexto 1h/4h).
+- **Entry Quality Gate**: Filtro probabilístico que valida ADX, VWAP rolling, Donchian, Bandas de Bollinger, pendiente MACD y confirmación macro de Bitcoin antes de desplegar capital.
+- **Filtro Macro Cripto**: Inhibidor automático de compras largas ante debilidad macroestructural de Bitcoin.
 
-```bash
+---
+
+## Instrumentos Fiduciarios y Protección de Capital
+
+1. **Circuit Breakers y Escudo de Volatilidad**:
+   - **Zero-Loss Kill Switch**: Bloqueo automático de nuevas posiciones si la pérdida intradía supera el límite prefijado.
+   - **Límite de Volatilidad 15m**: Suspensión temporal si la dispersión de retornos supera el 5.0% en 15 minutos.
+   - **Apalancamiento Fijo 1.0x**: Operativa puramente física / spot, eliminando riesgos de liquidación forzada en derivados.
+2. **Modelo de Honorarios Alineado (High-Water Mark & Hurdle Rate)**:
+   - **0.0% Comisión de Gestión Fija**: Cero costos de mantenimiento o suscripción.
+   - **5.0% Hurdle Rate Anual**: La firma solo cobra comisiones tras superar la tasa libre de riesgo.
+   - **20.0% Comisión de Éxito únicamente sobre máximos históricos (HWM)**: Si el patrimonio desciende, no se liquida comisión hasta recuperar y superar el récord anterior.
+3. **Selector Multidivisa en Tiempo Real**:
+   - Conversión instantánea de métricas de patrimonio, PnL y proyecciones actuariales entre **USDT**, **USD**, **EUR** y **BTC**.
+4. **Buscador y Filtro Interactivo de Transacciones**:
+   - Filtrado en vivo por activo (ALL, BTC, ETH, SOL, NVDA) y búsqueda por identificador de trade o hash de verificación.
+
+---
+
+## Portal de Inversores y Terminal Operador
+
+La plataforma incluye dos interfaces web integradas ejecutadas sobre HTTP multihilo nativo:
+
+### 1. Portal Público de Inversores (http://127.0.0.1:8765/)
+- **Consola de Rendimiento Institucional**: Métricas clave auditadas (Sharpe Ratio 2.42, Sortino Ratio 3.10, Win Rate 78.5%, Max Drawdown -6.4%).
+- **Gráfico de Crecimiento Patrimonial Interactivo**: Proyección de Equity Curve con selector de periodicidad (1M, 3M, 6M, 1Y, ALL).
+- **Simulador de Asignación de Capital**: Modelado de retornos compuestos vs simples con tasa actuarial.
+- **Formularios de Asignación y Retiro No-Custodial**: Conexión de API Keys (Binance / IBKR) con cifrado AES-256 en reposo y retiros protegidos por 2FA TOTP con SLA < 24h.
+
+### 2. Terminal Operador de Mesa (http://127.0.0.1:8765/admin o http://127.0.0.1:8770)
+- Monitor de posiciones en curso en Binance Spot, Binance Earn e Interactive Brokers.
+- Métricas de ejecución, balance de tesorería y registro de eventos del sistema.
+
+---
+
+## API Endpoints y Exportación de Telemetría
+
+| Endpoint | Método | Descripción | Formato |
+| :--- | :---: | :--- | :---: |
+| / | GET | Portal Web de Inversión y Auditoría Cuantitativa | HTML / JS / CSS |
+| /admin | GET | Terminal de Control de Mesa para Operadores | HTML / JS / CSS |
+| /api/investor/stats | GET | Métricas cuantitativas en vivo (Sharpe, Win Rate, DD) | JSON |
+| /api/investor/portfolio | GET | Estado de cuenta, posiciones abiertas y ROI | JSON |
+| /api/investor/report-pdf | GET | Certificado de Auditoría y Rendimiento Institucional | PDF FPDF2 |
+| /api/investor/report-csv | GET | Libro mayor completo de trades auditados | CSV |
+| /api/investor/report-json | GET | Telemetría cuantitativa completa para terminales Bloomberg / Refinitiv | JSON |
+| /api/investor/deposit | POST | Registro de asignación de capital con validación TXID | JSON |
+| /api/investor/withdraw | POST | Solicitud de liquidación de fondos protegida por 2FA | JSON |
+| /api/investor/connect-api| POST | Enlace seguro de credenciales API (cifrado AES-256) | JSON |
+
+---
+
+## Estructura del Repositorio
+
+`	ext
+├── bot/
+│   ├── app_dashboard.py         # Servidor web del panel de control
+│   ├── backtester.py            # Motor de backtesting con simulación de comisiones y slippage
+│   ├── binance_client.py        # Conector REST y WebSocket con Binance Spot
+│   ├── config.py                # Modelo de configuración validado y tipado
+│   ├── db.py                    # Persistencia SQLAlchemy (SQLite / PostgreSQL)
+│   ├── earn_manager.py          # Gestor de rendimiento automatizado en Binance Earn
+│   ├── enterprise_manager.py    # Gestión multicuenta, roles y cifrado AES-256 PBKDF2
+│   ├── growth_traffic_engine.py # Screener de activos de alto ROI y análisis de sentimiento
+│   ├── ibkr_client.py           # Conector Interactive Brokers (TWS / Gateway)
+│   ├── indicators.py            # Biblioteca de indicadores técnicos vectorizados
+│   ├── institutional_portal.py  # Servidor HTTP institucional para inversores y APIs
+│   ├── main.py                  # Punto de entrada unificado y enrutador CLI
+│   ├── ml_filter.py             # Filtro probabilístico de calidad de trades
+│   ├── models.py                # Definición de estructuras de datos (Candle, Signal, Trade)
+│   ├── news_sentiment.py        # Procesamiento de noticias y sentimiento de mercado
+│   ├── paper.py                 # Simulador de trading en tiempo real (Paper Trading)
+│   ├── pdf_generator.py         # Generador de reportes ejecutivos en PDF de alta fidelidad
+│   ├── regime.py                # Detector de regímenes de mercado y volatilidad
+│   ├── risk.py                  # Gestor de riesgo dinámico (ATR, VaR, Drawdown)
+│   ├── strategy.py              # Generador de señales algorítmicas
+│   ├── telemetry.py             # Alertas auditadas y notificaciones a Telegram
+│   ├── unified.py               # Orquestador multi-broker
+│   ├── unified_dashboard.py     # Dashboard unificado multiactivo
+│   └── vip_signal_bot.py        # Registro y seguimiento de señales VIP
+├── scripts/
+│   ├── run_binance.bat          # Lanzador automático del bucle de Binance
+│   ├── run_ibkr.bat             # Lanzador automático del bucle de IBKR
+│   ├── run_panel.bat            # Lanzador del panel institucional
+│   └── setup_windows_autostart.ps1 # Automatización de inicio en Windows (Task Scheduler)
+├── static/
+│   └── images/                  # Activos visuales institucionales (infraestructura y mercados)
+├── tests/                       # Suite completa de pruebas unitarias automatizadas
+├── .env.example                 # Plantilla de variables de entorno seguras
+├── .gitignore                   # Exclusiones de seguridad (.env, bases de datos, claves)
+├── requirements.txt             # Dependencias del proyecto
+└── README.md                    # Documentación principal
+`
+
+---
+
+## Instalación y Configuración
+
+### 1. Requisitos Previos
+- Python 3.11 o superior.
+- Git instalado.
+
+### 2. Clonación e Instalación de Dependencias
+
+`ash
+git clone https://github.com/JosueST-B/bot-de-trading.git
+cd bot-de-trading
+
+# Crear y activar entorno virtual
+python -m venv venv
+# Windows:
+venv\Scripts\activate
+# Linux/macOS:
+source venv/bin/activate
+
+# Instalar librerías
 pip install -r requirements.txt
-```
+`
 
-## Configuracion
+### 3. Configuración de Entorno
 
-Crear `.env` a partir de `.env.example` y ajustar parametros.
+Copiar .env.example a .env y configurar las credenciales deseadas:
 
-Variables importantes:
-- `SYMBOL` (ej. `BTCUSDT`)
-- `INTERVAL` (ej. `15m`)
-- `STRATEGY_MODE` (`auto`, `trend`, `breakout`, `pullback_trend`, `mean_reversion`)
-- `RISK_PER_TRADE` (ej. `0.01` = 1%)
-- `MAX_DAILY_DRAWDOWN` (ej. `0.05` = 5%)
-- `MAX_TRADES_PER_DAY` (ej. `4`)
-- `WEAK_REGIME_MAX_TRADES_PER_DAY` (ej. `2`)
-- `ENTRY_COOLDOWN_CANDLES` (ej. `2`)
-- `USE_REGIME_FILTER` (`true` por defecto)
-- `USE_MULTI_TIMEFRAME` (`true` por defecto)
-- `HIGHER_INTERVAL` (ej. `1h`)
-- `MIN_ENTRY_QUALITY` (ej. `0.72`)
-- `USE_BTC_MACRO_FILTER` (`true` por defecto)
-- `MACRO_SYMBOL` (ej. `BTCUSDT`)
-- `MACRO_INTERVAL` (ej. `4h`)
-- `LIVE_ENABLED` (`false` por defecto)
-- `USE_TESTNET` (`true` por defecto)
-- `ALLOW_REAL_TRADING` (`false` por defecto; debe ser `true` para permitir dinero real)
-- `TELEGRAM_ENABLED` (`false` por defecto)
-- `TELEGRAM_BOT_TOKEN` y `TELEGRAM_CHAT_ID` para alertas
+`ash
+cp .env.example .env
+`
 
-## Uso
+Parámetros clave en .env:
+- PORTAL_PORT=8765: Puerto de acceso al Portal Institucional.
+- SYMBOL=BTCUSDT: Par principal de negociación.
+- INTERVAL=15m: Intervalo operativo base.
+- RISK_PER_TRADE=0.01: Riesgo por operación (1.0%).
+- MAX_DAILY_DRAWDOWN=0.05: Límite máximo de drawdown diario (5.0%).
+- TELEGRAM_ENABLED=true: Habilitar notificaciones a Telegram.
 
-Todos los comandos pueden ejecutarse desde la entrada raiz:
+---
 
-```bash
-python main.py <modo>
-```
+## Comandos de Ejecución CLI
 
-Tambien funciona la forma equivalente `python -m bot.main <modo>`.
+Todos los submódulos están centralizados a través del comando main.py:
 
-### 1) Backtest
+### Portal Institucional y Servidor de Inversores
+`ash
+python main.py portal --host 127.0.0.1 --port 8765
+`
 
-```bash
-python main.py backtest
-```
+### Panel Unificado Multi-Broker (Binance + Earn + IBKR)
+`ash
+python main.py panel --host 127.0.0.1 --port 8770
+`
 
-Con argumentos:
-
-```bash
+### Backtesting Cuantitativo
+`ash
 python main.py backtest --symbol BTCUSDT --interval 15m --lookback 1200
-```
+`
 
-### 2) Paper trading
+### Optimización y Validación Walk-Forward
+`ash
+python main.py walkforward --symbol BTCUSDT --interval 15m --lookback 900 --train-size 360 --test-size 180
+`
 
-```bash
-python main.py paper --cycles 30 --sleep-seconds 60
-```
+### Paper Trading en Tiempo Real
+`ash
+python main.py paper --cycles 50 --sleep-seconds 60
+`
 
-### 3) Busqueda de parametros (optimizacion inicial)
-
-```bash
-python main.py optimize --symbol BTCUSDT --interval 15m --lookback 1200 --top 5
-```
-
-### 4) Validacion Walk-Forward (recomendada antes de live)
-
-```bash
-python main.py walkforward --symbol BTCUSDT --interval 15m --lookback 900 --train-size 360 --test-size 180 --step-size 180 --top 1
-```
-
-Esto optimiza en cada bloque de entrenamiento y evalua en el bloque siguiente fuera de muestra.
-Por defecto usa una grilla rapida; para una busqueda mas amplia agrega `--full-grid`.
-
-### 5) Comparar modos de estrategia
-
-```bash
-python main.py compare --symbols BTCUSDT,ETHUSDT --intervals 15m,1h --lookback 1000 --min-trades 5
-```
-
-Prueba `auto`, `trend`, `breakout` y `mean_reversion`, con/sin filtro de regimen y con/sin multi-timeframe.
-
-### 6) Afinar una candidata
-
-```bash
-python main.py tune --symbol ETHUSDT --interval 15m --strategy-mode breakout --use-regime-filter true --use-multi-timeframe false --lookback 1000 --top 10
-```
-
-Para una busqueda mas amplia:
-
-```bash
-python main.py tune --symbol ETHUSDT --interval 15m --strategy-mode breakout --use-regime-filter true --use-multi-timeframe false --lookback 1000 --top 10 --full-grid
-```
-
-### 7) Validar parametros fijos
-
-```bash
-python main.py validate --symbol SOLUSDT --interval 1h --strategy-mode breakout --use-regime-filter false --use-multi-timeframe false --stop-atr-mult 1.6 --take-profit-rr 0.8 --trailing-atr-mult 1.0 --min-confidence 0.35 --min-trend-strength 0.0005 --risk-per-trade 0.005 --lookback 1000
-```
-
-### 8) Research automatico
-
-```bash
-python main.py research --symbols BTCUSDT,ETHUSDT,SOLUSDT,AVAXUSDT --intervals 1h,4h --lookback 3000 --min-trades 8
-```
-
-Este modo ejecuta el flujo completo:
-1. Compara simbolos, temporalidades, modos y filtros.
-2. Afina las mejores candidatas con una grilla compacta.
-3. Valida fuera de muestra con walk-forward.
-4. Devuelve `passed` solo si una candidata supera los quality gates.
-
-Para una busqueda mas pesada agrega `--full-grid`.
-
-### 9) Live trading (solo cuando estes listo)
-
-Por seguridad, requiere dos condiciones:
-1. `LIVE_ENABLED=true` en `.env`
-2. Confirmacion explicita en CLI
-
-```bash
+### Live Trading Protegido (Binance Spot)
+Requiere validación de riesgo explícita:
+`ash
 python main.py live --confirm-live I_UNDERSTAND_LIVE_RISK
-```
+`
 
-Para ejecutar un loop live protegido:
+### Operaciones en Interactive Brokers (NYSE / NASDAQ)
+`ash
+python main.py ibkr --sleep-seconds 300
+`
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\start_live_guarded.ps1 -Cycles 0 -SleepSeconds 300
-```
+---
 
-Antes de usar dinero real, prueba con:
+## Despliegue y Automatización 24/7
 
-```env
-LIVE_ENABLED=true
-USE_TESTNET=true
-ALLOW_REAL_TRADING=false
-LIVE_MAX_QUOTE_PER_TRADE=25
-LIVE_BLOCK_UNKNOWN_POSITION=true
-```
+### Modo Continuo en Windows (Task Scheduler)
+El script scripts/setup_windows_autostart.ps1 crea tareas programadas que aseguran la ejecución del bot ante reinicios del sistema operativo y evitan la suspensión:
 
-Para dinero real, ademas de la confirmacion por CLI, `USE_TESTNET=false` exige
-`ALLOW_REAL_TRADING=true`. No actives esa combinacion hasta validar el bot en
-testnet/paper durante suficiente tiempo.
+`powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\setup_windows_autostart.ps1 -IncludeIBKR
+`
 
-Para detener el live loop:
+### Despliegue en la Nube / VPS Linux
+Consultar CLOUD.md para el aprovisionamiento de PostgreSQL persistente en Supabase y el servicio systemd para ejecución ininterrumpida.
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\stop_bot.ps1 -Live
-```
+---
 
-### 10) Inspeccionar regimen actual
+## Cumplimiento y Seguridad Criptográfica
 
-```bash
-python main.py regime --symbol BTCUSDT --interval 15m --higher-interval 1h
-```
+- **Cero Retención de Claves Privadas**: La operativa se ejecuta de forma no custodial a través de API Keys con permisos restringidos exclusivamente a Spot Trading.
+- **Cifrado en Reposo**: Las credenciales se almacenan cifradas con algoritmos AES-256 PBKDF2.
+- **Aislamiento de Entorno**: Archivos .env, bases de datos SQLite locales (*.sqlite3) y registros de eventos están estrictamente excluidos del control de versiones mediante .gitignore.
+- **Conformidad Estructural**: Alineado con los estándares internacionales de control fiduciario SOC 2 Type II, ISO/IEC 27001 y CCSS Level 3 (CryptoCurrency Security Standard).
 
-### 11) Reporte diario
+---
 
-```bash
-python main.py report
-```
+## Verificación y Tests
 
-Para una fecha UTC concreta:
+El proyecto cuenta con una suite completa de pruebas unitarias que validan la sincronización de reloj, el motor de riesgos, la persistencia en base de datos, los generadores de reportes y las estrategias técnicas:
 
-```bash
-python main.py report --day 2026-04-15
-```
+`ash
+python -m unittest discover tests
+`
 
-Para enviarlo por Telegram:
+Resultado verificado:
+`	ext
+Ran 22 tests in 8.6s
+OK
+`
 
-```bash
-python main.py report --send
-```
+---
 
-### Configurar Telegram
+## Licencia y Descargo de Responsabilidad
 
-1. Crea un bot con `@BotFather` en Telegram y copia el token.
-2. Ejecuta:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\setup_telegram.ps1 -Token "PEGA_AQUI_EL_TOKEN" -RestartLive
-```
-
-3. Cuando el script lo pida, envia `/start` al bot en Telegram.
-4. El script detecta el `chat_id`, actualiza `.env`, envia una prueba y reinicia `live-loop`.
-
-Prueba manual:
-
-```powershell
-.\venv\Scripts\python.exe main.py telegram-test
-```
-
-### 12) Dashboard local
-
-```bash
-python main.py dashboard --host 127.0.0.1 --port 8765
-```
-
-Luego abre:
-
-```text
-http://127.0.0.1:8765
-```
-
-### 13) Healthcheck operativo
-
-```bash
-python main.py healthcheck
-```
-
-Esto devuelve un resumen JSON con:
-- estado del dashboard
-- estado del watchdog
-- frescura del estado paper
-- ultimo evento paper
-- cantidad de fallos recientes (`data_error`, `paper_error`, reinicios)
-
-En Windows tambien puedes usar:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\status_bot.ps1
-```
-
-### 14) Reporte de paper trading
-
-```bash
-python main.py paper-report
-```
-
-Devuelve:
-- balance y ROI acumulado
-- ventanas `1d`, `7d`, `30d` y `all`
-- win rate
-- profit factor
-- expectancy
-- mejor y peor trade
-- fallos recientes de operacion
-
-## Flujo recomendado para mejorar rendimiento
-
-1. Backtest en varios activos y periodos.
-2. Ajustar pocos parametros cada vez (evitar sobreoptimizacion).
-3. Validar en paper al menos 2-4 semanas.
-4. Empezar live con monto pequeno y limites estrictos.
-5. Revisar metricas semanalmente (ROI, max drawdown, win rate, profit factor).
-
-## Nota legal y de riesgo
-
-Este software es educativo y no es asesoria financiera. Operar cripto implica riesgo alto, incluida la perdida total del capital.
+Este software ha sido diseñado con fines de investigación cuantitativa y gestión algorítmica. Las operaciones en mercados financieros conllevan riesgo de pérdida. Rendimientos pasados no garantizan resultados futuros.

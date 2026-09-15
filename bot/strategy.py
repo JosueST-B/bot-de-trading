@@ -414,22 +414,20 @@ class HybridStrategy:
             return Signal("hold", 0.0, "elder_insufficient_data")
 
         close = float(fx["close"])
-        marea_ok = fx["macd_hist_slope"] > 0 or fx["macd_hist"] > 0
-        trend_ok = fx["ema_slow_slope"] > 0 and close > fx["ema_slow"]
-        pullback = fx["rsi"] < 48.0
-        trigger = close >= float(fx["prev_close"]) * 1.002
+        tide_ok = fx["ema_slow_slope"] > -0.0005 and close > fx["ema_200"]
+        wave_ok = fx["rsi"] < 50 or fx["rsi_3"] < 32
+        trigger_ok = close > float(fx["prev_close"]) and fx["macd_hist_slope"] > -0.0001
         volume_ok = fx["vol_z"] >= self.cfg.min_volume_z
 
         score = 0.0
-        score += 0.30 if marea_ok else 0.0
-        score += 0.30 if trend_ok else 0.0
-        score += 0.20 if pullback else 0.0
-        score += 0.10 if trigger else 0.0
+        score += 0.35 if tide_ok else 0.0
+        score += 0.35 if wave_ok else 0.0
+        score += 0.20 if trigger_ok else 0.0
         score += 0.10 if volume_ok else 0.0
         if regime.name == "bullish_trend":
             score += 0.10
 
-        if marea_ok and trend_ok and pullback and trigger:
+        if tide_ok and wave_ok and trigger_ok:
             return Signal("buy", min(score, 1.0), "elder_triple")
         return Signal("hold", min(score, 1.0), "elder_no_edge")
 
@@ -444,18 +442,17 @@ class HybridStrategy:
         jaw = float(fx["ema_slow"])
         
         mouth_open = lips > teeth and teeth > jaw
-        lips_rising = lips > float(fx["prev_ema_5"]) if self._is_finite(fx.get("prev_ema_5")) else close > lips
-        volume_ok = fx["vol_z"] >= 0.15
+        pullback_ok = float(fx["low"]) <= teeth and close > teeth
+        volume_ok = fx["vol_z"] >= 0.1
         
         score = 0.0
         score += 0.40 if mouth_open else 0.0
-        score += 0.25 if lips_rising else 0.0
+        score += 0.40 if pullback_ok else 0.0
         score += 0.20 if volume_ok else 0.0
-        score += 0.15 if close > lips else 0.0
         if regime.name == "bullish_trend":
             score += 0.10
 
-        if mouth_open and volume_ok:
+        if mouth_open and pullback_ok and volume_ok:
             return Signal("buy", min(score, 1.0), "williams_alligator")
         return Signal("hold", min(score, 1.0), "williams_no_edge")
 
@@ -472,11 +469,11 @@ class HybridStrategy:
         if mode == "williams_alligator":
             return self._williams_alligator_signal(fx, regime)
 
+        # En modo auto, priorizamos pullbacks y reversión a la media
         if regime.name == "bullish_trend":
             candidates = [
                 self._elder_triple_signal(fx, regime),
-                self._turtle_breakout_signal(fx, regime),
-                self._williams_alligator_signal(fx, regime),
+                self._connors_rsi_signal(fx, regime)
             ]
         elif regime.name == "range":
             candidates = [
@@ -494,9 +491,8 @@ class HybridStrategy:
         regime: MarketRegime,
         macro_context: dict[str, Any] | None = None,
         in_position: bool = False,
+        entry_reason: str | None = None,
     ) -> Signal:
-        weak_trend_exit = fx["close"] < fx["ema_slow"]
-        overbought_exit = fx["rsi"] > 78
         hostile_regime_exit = self.cfg.use_regime_filter and regime.name in {
             "bearish_trend",
             "high_volatility",
@@ -504,8 +500,22 @@ class HybridStrategy:
 
         if hostile_regime_exit:
             return Signal("exit", 0.75, f"regime_exit:{regime.reason}")
-        if in_position and (weak_trend_exit or overbought_exit):
-            return Signal("exit", 0.5, "trend_or_momentum_exit")
+            
+        if in_position:
+            # 1. Salidas rápidas para estrategias de reversión / pullback rápido (Connors, Mean Reversion)
+            is_pullback = entry_reason and ("connors_rsi" in entry_reason or "mean_reversion" in entry_reason)
+            if is_pullback:
+                pullback_exit = fx["rsi_3"] > 68 or fx["close"] >= fx["bb_mid"] or fx["rsi"] > 65
+                if pullback_exit:
+                    return Signal("exit", 0.6, "pullback_target_exit")
+            else:
+                # 2. Salidas para tendencias
+                macro_flat = fx["close"] < fx["ema_200"]
+                overbought_exit = fx["rsi"] > 78
+                if macro_flat or overbought_exit:
+                    return Signal("exit", 0.5, "trend_or_momentum_exit")
+                
+            return Signal("hold", 0.5, f"position_hold:{regime.name}")
 
         entry = self._entry_signal(fx, regime)
         regime_multiplier = 1.0
@@ -515,9 +525,6 @@ class HybridStrategy:
             else:
                 regime_multiplier = regime.risk_multiplier
         confidence = min(entry.confidence * regime_multiplier, 1.0)
-
-        if in_position:
-            return Signal("hold", confidence, f"position_hold:{regime.name}")
 
         if entry.action == "buy" and confidence >= self.cfg.min_confidence:
             macro = macro_context or {
@@ -545,6 +552,7 @@ class HybridStrategy:
         macro_df: pd.DataFrame | None = None,
         in_position: bool = False,
         features_ready: bool = False,
+        entry_reason: str | None = None,
     ) -> Signal:
         if len(df) < 80:
             return Signal("hold", 0.0, "insufficient_data")
@@ -576,4 +584,5 @@ class HybridStrategy:
             regime,
             macro_context=macro_context,
             in_position=in_position,
+            entry_reason=entry_reason,
         )

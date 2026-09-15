@@ -29,14 +29,22 @@ BULLISH_PATTERNS = [re.compile(p, re.IGNORECASE) for p in BULLISH_KEYWORDS]
 BEARISH_PATTERNS = [re.compile(p, re.IGNORECASE) for p in BEARISH_KEYWORDS]
 
 
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+
+_vader_analyzer = SentimentIntensityAnalyzer()
+
 def analyze_text(text: str) -> float:
-    """Calcula el sentimiento de un texto de -1.0 a 1.0."""
-    bull_count = sum(1 for p in BULLISH_PATTERNS if p.search(text))
-    bear_count = sum(1 for p in BEARISH_PATTERNS if p.search(text))
-    total = bull_count + bear_count
-    if total == 0:
-        return 0.0
-    return (bull_count - bear_count) / total
+    """Calcula el sentimiento de un texto de -1.0 a 1.0 usando VADER."""
+    try:
+        vs = _vader_analyzer.polarity_scores(text)
+        return float(vs["compound"])
+    except Exception:
+        bull_count = sum(1 for p in BULLISH_PATTERNS if p.search(text))
+        bear_count = sum(1 for p in BEARISH_PATTERNS if p.search(text))
+        total = bull_count + bear_count
+        if total == 0:
+            return 0.0
+        return (bull_count - bear_count) / total
 
 
 def analyze_feed(items: list[dict[str, str]]) -> float:

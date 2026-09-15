@@ -171,6 +171,7 @@ class BinanceExecutionClient:
             testnet=self.cfg.use_testnet,
             requests_params={'timeout': 20}
         )
+        self.client.REQUEST_RECVWINDOW = 60000
         self.sync_clock()
 
     def sync_clock(self) -> None:
@@ -185,14 +186,30 @@ class BinanceExecutionClient:
         except Exception as e:
             logging.warning(f"No se pudo sincronizar el offset del reloj con Binance: {e}")
 
+    def _call_signed(self, fn, *args, **kwargs) -> Any:
+        """Ejecuta una llamada API firmada con captura de error -1021 (recvWindow) y re-sincronización instantánea."""
+        import logging
+        import time
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            err_msg = str(e)
+            if "-1021" in err_msg or "recvWindow" in err_msg:
+                logging.warning("Desfase de reloj detectado (-1021 / recvWindow). Re-sincronizando con Binance y reintentando...")
+                self.sync_clock()
+                time.sleep(0.2)
+                return fn(*args, **kwargs)
+            raise
 
     def create_market_buy(self, symbol: str, quantity: float) -> dict[str, Any]:
-        return self.client.create_order(
+        return self._call_signed(
+            self.client.create_order,
             symbol=symbol.upper(), side="BUY", type="MARKET", quantity=quantity
         )
 
     def create_market_sell(self, symbol: str, quantity: float) -> dict[str, Any]:
-        return self.client.create_order(
+        return self._call_signed(
+            self.client.create_order,
             symbol=symbol.upper(), side="SELL", type="MARKET", quantity=quantity
         )
 
@@ -228,7 +245,8 @@ class BinanceExecutionClient:
         qty_str = self.format_quantity(quantity, filters)
         stop_str = self.format_price(stop_price, filters)
         limit_str = self.format_price(limit_price, filters)
-        return self.client.create_order(
+        return self._call_signed(
+            self.client.create_order,
             symbol=symbol.upper(),
             side="SELL",
             type="STOP_LOSS_LIMIT",
@@ -242,7 +260,8 @@ class BinanceExecutionClient:
         qty_str = self.format_quantity(quantity, filters)
         stop_str = self.format_price(stop_price, filters)
         limit_str = self.format_price(limit_price, filters)
-        return self.client.create_order(
+        return self._call_signed(
+            self.client.create_order,
             symbol=symbol.upper(),
             side="SELL",
             type="TAKE_PROFIT_LIMIT",
@@ -253,20 +272,21 @@ class BinanceExecutionClient:
         )
 
     def cancel_order(self, symbol: str, order_id: str | int) -> dict[str, Any]:
-        return self.client.cancel_order(
+        return self._call_signed(
+            self.client.cancel_order,
             symbol=symbol.upper(),
             orderId=str(order_id)
         )
 
     def get_order_status(self, symbol: str, order_id: str | int) -> dict[str, Any]:
-        return self.client.get_order(
+        return self._call_signed(
+            self.client.get_order,
             symbol=symbol.upper(),
             orderId=str(order_id)
         )
 
     def get_open_orders(self, symbol: str) -> list[dict[str, Any]]:
-        return self.client.get_open_orders(symbol=symbol.upper())
-
+        return self._call_signed(self.client.get_open_orders, symbol=symbol.upper())
 
     @classmethod
     def split_symbol(cls, symbol: str) -> tuple[str, str]:
@@ -277,12 +297,17 @@ class BinanceExecutionClient:
         raise ValueError(f"Could not infer base/quote assets from symbol {symbol!r}.")
 
     def get_asset_balance_values(self, asset: str) -> tuple[float, float]:
-        payload = self.client.get_asset_balance(asset=asset.upper())
-        if not payload:
+        try:
+            payload = self._call_signed(self.client.get_asset_balance, asset=asset.upper())
+            if not payload:
+                return 0.0, 0.0
+            free = self._to_float(payload.get("free"), 0.0)
+            locked = self._to_float(payload.get("locked"), 0.0)
+            return free, locked
+        except Exception as e:
+            import logging
+            logging.error(f"Error al consultar balance de {asset}: {e}")
             return 0.0, 0.0
-        free = self._to_float(payload.get("free"), 0.0)
-        locked = self._to_float(payload.get("locked"), 0.0)
-        return free, locked
 
     @staticmethod
     def _to_float(value: Any, default: float = 0.0) -> float:

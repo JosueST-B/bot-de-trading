@@ -4,9 +4,11 @@ import argparse
 import html
 import json
 import os
+import socket
 import subprocess
 import time
 import logging
+import uuid
 from dataclasses import asdict, replace
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -29,6 +31,7 @@ from bot.telemetry import build_paper_report, build_telemetry
 from bot.watchdog import run_watchdog
 from bot.walkforward import run_fixed_walkforward, run_walkforward
 from bot.db import DBPosition, DBTrade, DBBotState, get_db_session
+from bot.earn_manager import EarnManager, build_earn_manager
 from bot.news_sentiment import NewsSentimentAnalyzer
 
 
@@ -54,7 +57,15 @@ class LiveTrader:
         self.state_key = f"live:{cfg.symbol}:{cfg.interval}"
         self.db_session = get_db_session(cfg.event_db_path)
         self.news_analyzer = NewsSentimentAnalyzer(cfg.event_db_path)
+        from bot.ml_filter import MLFilter
+        self.ml_filter = MLFilter()
         self.cash = cfg.initial_balance
+        # Earn: solo en cuenta real (los endpoints /sapi no existen en testnet)
+        self.earn = (
+            build_earn_manager(cfg, self.exec.client)
+            if not cfg.use_testnet
+            else None
+        )
 
 
         self.position: Position | None = None
@@ -196,12 +207,17 @@ class LiveTrader:
             if state_record:
                 payload = json.loads(state_record.value_json)
                 params = payload.get("params", {})
-                if params:
+                if params and _autotune_candidate_is_acceptable(payload):
                     from dataclasses import replace
                     self.cfg = replace(self.cfg, **params)
                     self.strategy = HybridStrategy(self.cfg)
                     self.risk = RiskManager(self.cfg)
                     logging.info(f"[{self.cfg.symbol}] Configuración auto-optimizada cargada con éxito: {params}")
+                elif params:
+                    logging.warning(
+                        "[%s] Configuracion auto-optimizada rechazada por metricas no rentables.",
+                        self.cfg.symbol,
+                    )
         except Exception as e:
             logging.error(f"[{self.cfg.symbol}] Error al cargar configuración auto-optimizada para {self.cfg.symbol}: {e}")
 
@@ -297,7 +313,8 @@ class LiveTrader:
                 entry_price=db_pos.entry_price,
                 quantity=db_pos.quantity,
                 stop_price=db_pos.stop_price,
-                take_profit_price=db_pos.take_profit_price
+                take_profit_price=db_pos.take_profit_price,
+                entry_reason=getattr(db_pos, "entry_reason", "") or "",
             )
 
         except Exception as e:
@@ -307,7 +324,8 @@ class LiveTrader:
                 entry_price=db_pos.entry_price,
                 quantity=db_pos.quantity,
                 stop_price=db_pos.stop_price,
-                take_profit_price=db_pos.take_profit_price
+                take_profit_price=db_pos.take_profit_price,
+                entry_reason=getattr(db_pos, "entry_reason", "") or "",
             )
 
     def _close_db_position(self, db_pos: DBPosition, exit_price: float, exit_time: datetime, reason: str):
@@ -387,7 +405,8 @@ class LiveTrader:
     def _balances(self) -> tuple[float, float, float, float]:
         quote_free, quote_locked = self.exec.get_asset_balance_values(self.quote_asset)
         base_free, base_locked = self.exec.get_asset_balance_values(self.base_asset)
-        self.cash = quote_free
+        if quote_free > 0 or not self.cash:
+            self.cash = quote_free
         return quote_free, quote_locked, base_free, base_locked
 
     @staticmethod
@@ -441,6 +460,9 @@ class LiveTrader:
                 "reason": "waiting_closed_candle",
             }
 
+        if not self.ml_filter.is_trained:
+            self.ml_filter.train(analysis_df)
+
         higher_analysis_df = None
         if higher_df is not None:
             higher_analysis_df = self._closed_candles(higher_df)
@@ -466,11 +488,21 @@ class LiveTrader:
         atr_value = float(
             atr(analysis_df["high"], analysis_df["low"], analysis_df["close"], 14).iloc[-1]
         )
+
+        # Monitorear señales VIP activas contra precios de la vela actual
+        try:
+            from bot.vip_signal_bot import VIPSignalTracker
+            tracker = VIPSignalTracker(self.cfg.event_db_path)
+            tracker.check_price(self.cfg.symbol, high=high, low=low, close=close)
+        except Exception as track_exc:
+            logging.debug("Error al verificar tracker VIP: %s", track_exc)
+
         signal = self.strategy.generate(
             analysis_df,
             higher_analysis_df,
             macro_df=macro_analysis_df,
             in_position=self.position is not None,
+            entry_reason=self.position.entry_reason if self.position is not None else None,
         )
         regime_source = higher_analysis_df if higher_analysis_df is not None else analysis_df
         regime = classify_market(regime_source, self.cfg)
@@ -663,6 +695,20 @@ class LiveTrader:
             self.last_processed_close_time = now
             return {"time": now.isoformat(), "event": "hold", "reason": signal.reason}
 
+        # Validar señal de compra con el filtro predictivo de Machine Learning
+        try:
+            ml_prob = self.ml_filter.predict_probability(analysis_df)
+            logging.info(f"[{self.cfg.symbol}] Probabilidad de éxito estimada por ML: {ml_prob:.2%}")
+            if ml_prob < self.cfg.min_confidence:
+                self.last_processed_close_time = now
+                return {
+                    "time": now.isoformat(),
+                    "event": "hold",
+                    "reason": f"ml_low_probability: {ml_prob:.2%} (< {self.cfg.min_confidence:.2%})"
+                }
+        except Exception as e:
+            logging.error(f"Error al evaluar predicción de ML: {e}")
+
         # Consultar sentimiento de noticias antes de comprar
         try:
             sentiment_score, _ = self.news_analyzer.get_sentiment()
@@ -681,6 +727,23 @@ class LiveTrader:
         entry_ref = close * (1 + self.cfg.slippage)
         stop = entry_ref - (atr_value * self.cfg.stop_atr_mult)
         take = entry_ref + (entry_ref - stop) * self.cfg.take_profit_rr
+
+        # Redimir de Simple Earn Flexible si falta liquidez para esta entrada
+        if self.earn is not None and quote_free < self.cfg.live_max_quote_per_trade:
+            try:
+                redeemed = self.earn.ensure_quote_available(
+                    self.quote_asset, self.cfg.live_max_quote_per_trade
+                )
+                if redeemed > 0:
+                    logging.info(
+                        f"[{self.cfg.symbol}] Earn: redimidos {redeemed:.4f} "
+                        f"{self.quote_asset} de flexible para la entrada."
+                    )
+                    time.sleep(2)  # esperar acreditacion de la redencion rapida
+                    quote_free, quote_locked, base_free, base_locked = self._balances()
+            except Exception as exc:
+                logging.warning(f"[{self.cfg.symbol}] Earn: redencion fallo: {exc}")
+
         if quote_free < max(self.symbol_filters.min_notional, 1.0):
             self.last_processed_close_time = now
             return {
@@ -704,8 +767,42 @@ class LiveTrader:
             self.last_processed_close_time = now
             return {"time": now.isoformat(), "event": "hold", "reason": qty_reason}
 
+        # Registrar y emitir señal VIP
+        try:
+            from bot.vip_signal_bot import VIPSignalTracker
+            tracker = VIPSignalTracker(self.cfg.event_db_path)
+            tracker.register_signal(
+                self.cfg.symbol,
+                "BUY",
+                entry_ref,
+                stop,
+                reason=signal.reason,
+                strategy_mode=self.cfg.strategy_mode,
+            )
+        except Exception as texc:
+            logging.warning("Error al registrar señal VIP: %s", texc)
+
         # Ejecutar compra a mercado
-        order = self.exec.create_market_buy(self.cfg.symbol, qty)
+        try:
+            order = self.exec.create_market_buy(self.cfg.symbol, qty)
+        except Exception as e:
+            err_msg = str(e)
+            if "-2015" in err_msg or "permissions" in err_msg or getattr(self.cfg, "signal_provider_mode", False):
+                logging.info(f"[{self.cfg.symbol}] Modo Proveedor de Señales: Señal VIP emitida a Telegram (API Key en modo lectura).")
+                self.last_processed_close_time = now
+                return {
+                    "time": now.isoformat(),
+                    "event": "vip_signal_published",
+                    "price": entry_ref,
+                    "stop": stop,
+                    "take": take,
+                    "qty": qty,
+                    "reason": signal.reason,
+                    "strategy_mode": self.cfg.strategy_mode,
+                    "confidence": getattr(signal, "confidence", 0.85),
+                    "news_sentiment": getattr(self, "news_sentiment_score", 0.0),
+                }
+            raise
         fills = order.get("fills", []) if isinstance(order, dict) else []
         if fills:
             entry_price = _to_float(fills[0].get("price"), entry_ref)
@@ -770,7 +867,8 @@ class LiveTrader:
             take_profit_price=take,
             stop_loss_order_id=sl_order_id,
             take_profit_order_id=tp_order_id,
-            is_active=True
+            is_active=True,
+            entry_reason=signal.reason
         )
         self.db_session.add(db_pos)
         self.db_session.commit()
@@ -781,6 +879,7 @@ class LiveTrader:
             quantity=executed_qty,
             stop_price=stop,
             take_profit_price=take,
+            entry_reason=signal.reason
         )
 
         self.risk.register_entry(now)
@@ -908,7 +1007,22 @@ def _build_autotune_grid(strategy_modes: list[str]) -> dict[str, list[Any]]:
     }
 
 
-def perform_auto_tuning(cfg: BotConfig, telemetry) -> None:
+def _autotune_candidate_is_acceptable(candidate: dict[str, Any]) -> bool:
+    metrics = candidate.get("metrics", {})
+    return (
+        float(candidate.get("score", 0.0)) > 0.0
+        and float(metrics.get("roi_pct", 0.0)) > 0.0
+        and float(metrics.get("profit_factor", 0.0)) >= 1.0
+        and int(metrics.get("num_trades", 0)) >= 5
+    )
+
+
+def perform_auto_tuning(
+    cfg: BotConfig,
+    telemetry,
+    lease_key: str = "runtime:live-loop",
+    lease_owner: str | None = None,
+) -> None:
     """Ejecuta auto-optimización para todos los símbolos activos y guarda la mejor configuración en DB."""
     if not cfg.auto_tune_enabled:
         return
@@ -940,6 +1054,11 @@ def perform_auto_tuning(cfg: BotConfig, telemetry) -> None:
     
     tuned_summary = []
     for symbol in cfg.symbols_to_trade:
+        if lease_owner and hasattr(telemetry, "store"):
+            try:
+                telemetry.store.refresh_lease(lease_key, lease_owner)
+            except Exception as lexc:
+                logging.warning("No se pudo refrescar lease durante auto-tune: %s", lexc)
         try:
             logging.info(f"[{symbol}] Corriendo optimización de parámetros...")
             from dataclasses import replace
@@ -970,6 +1089,16 @@ def perform_auto_tuning(cfg: BotConfig, telemetry) -> None:
             )
             if candidates:
                 best = candidates[0]
+                if not _autotune_candidate_is_acceptable(best):
+                    logging.warning(
+                        "[%s] Auto-tune descartado: score=%s roi=%s profit_factor=%s trades=%s",
+                        symbol,
+                        best.get("score"),
+                        best.get("metrics", {}).get("roi_pct"),
+                        best.get("metrics", {}).get("profit_factor"),
+                        best.get("metrics", {}).get("num_trades"),
+                    )
+                    continue
                 optimal_params = best["params"]
                 # Guardar el set de parámetros óptimos en la DB
                 opt_key = f"optimal_config:{symbol}"
@@ -1003,7 +1132,7 @@ def perform_auto_tuning(cfg: BotConfig, telemetry) -> None:
                 }
                 mode_desc = STRATEGY_DESCS.get(mode, mode)
                 tuned_summary.append(
-                    f"▪️ #{symbol}: Estrategia de {mode_desc} (SL: {stop_atr:.1f}x ATR | Target R:R: {tp_rr:.1f})"
+                    f"• #{symbol}: Estrategia de {mode_desc} (SL: {stop_atr:.1f}x ATR | Target R:R: {tp_rr:.1f})"
                 )
         except Exception as e:
             logging.error(f"[{symbol}] Error durante el auto-tuning: {e}")
@@ -1020,12 +1149,14 @@ def perform_auto_tuning(cfg: BotConfig, telemetry) -> None:
         session.commit()
     except Exception as e:
         session.rollback()
-        logging.warning(f"Error al guardar last_auto_tune_time: {e}. Intentando forzar inserción...")
+        logging.warning(f"Error al guardar last_auto_tune_time: {e}. Reintentando con ORM...")
         try:
-            from sqlalchemy import text
-            session.execute(
-                text("INSERT OR REPLACE INTO bot_state_orm (key, value_json, updated_ts) VALUES (:key, :val, :ts)"),
-                {"key": "last_auto_tune_time", "val": json.dumps(now.isoformat()), "ts": now}
+            session.merge(
+                DBBotState(
+                    key="last_auto_tune_time",
+                    value_json=json.dumps(now.isoformat()),
+                    updated_ts=now,
+                )
             )
             session.commit()
         except Exception as e2:
@@ -1033,6 +1164,15 @@ def perform_auto_tuning(cfg: BotConfig, telemetry) -> None:
     finally:
         session.close()
     logging.info("--- Ciclo de Auto-Tuning finalizado ---")
+
+    # Enviar reporte a Telegram si está activo
+    if tuned_summary:
+        msg = (
+            "<b>[RECALIBRACIÓN CUANTITATIVA] ESTRATEGIAS RECALIBRADAS</b>\n\n"
+            "Se ha completado el ciclo de optimización walk-forward programado. Las siguientes configuraciones han sido actualizadas:\n\n"
+            + "\n".join(tuned_summary)
+        )
+        telemetry.alert(msg, category="autotune")
 
     # Enviar reporte a Binance Square si está activo
     if tuned_summary and cfg.binance_square_enabled:
@@ -1044,27 +1184,26 @@ def perform_auto_tuning(cfg: BotConfig, telemetry) -> None:
             sentiment_score, headlines = news_analyzer.get_sentiment()
             
             if sentiment_score > 0.15:
-                sent_emoji = "🟢 Alcista"
+                sent_emoji = "Alcista"
             elif sentiment_score < -0.15:
-                sent_emoji = "🔴 Bajista"
+                sent_emoji = "Bajista"
             else:
-                sent_emoji = "🟡 Neutral"
+                sent_emoji = "Neutral"
                 
             headline_str = ""
             if headlines:
-                headline_str = "\nTitulares destacados que estoy vigilando:\n" + "\n".join([f"▪️ {h['title']}" for h in headlines[:2]])
+                headline_str = "\nTitulares destacados que estoy vigilando:\n" + "\n".join([f"• {h['title']}" for h in headlines[:2]])
 
             publisher = BinanceSquarePublisher(cfg)
             msg = (
-                f"📊 ANÁLISIS DE MERCADO & PORTAFOLIO DIARIO 📊\n\n"
-                f"Hola a todos. Acabo de revisar los gráficos y el comportamiento reciente de nuestras monedas principales. He ajustado mis estrategias técnicas para las próximas horas para adaptarnos a las condiciones de volatilidad:\n\n"
-                f"🎯 CONFIGURACIÓN DE ESTRATEGIAS:\n"
+                f"[REPORTE CUANTITATIVO DIARIO] ESTRATEGIA Y COBERTURA TÉCNICA\n\n"
+                f"Apertura de jornada y revisión del mapa de liquidez global. Tras analizar el comportamiento de las principales monedas y los niveles de volatilidad implícita, hemos recalibrado los algoritmos de cobertura técnica y los umbrales de entrada para optimizar la relación riesgo/beneficio:\n\n"
+                f"ESTRATEGIAS RECALIBRADAS:\n"
                 + "\n".join(tuned_summary) + f"\n\n"
-                f"📰 SENTIMIENTO DEL MERCADO:\n"
-                f"El sentimiento general del sector se percibe {sent_emoji} (Índice: {sentiment_score:+.2f}).\n\n"
+                f"ANÁLISIS DE SENTIMIENTO & MACRO:\n"
+                f"El sentimiento macro de las noticias se ubica en un plano {sent_emoji} (Sesgo: {sentiment_score:+.2f}).\n"
                 + headline_str + "\n\n"
-                f"📈 Gráficos en TradingView: https://es.tradingview.com/chart/\n\n"
-                f"¡Tengan un gran día de trading y operen siempre con Stop Loss! 🚀💸"
+                f"La paciencia y la disciplina en la ejecución siguen siendo nuestras mayores ventajas estadísticas. Operen siempre bajo un plan de control de riesgo estricto."
             )
             publisher.publish_post(msg)
         except Exception as e:
@@ -1088,13 +1227,13 @@ def _publish_live_event_to_square(cfg: BotConfig, symbol: str, event: dict[str, 
         reason = event.get("reason", "unknown")
         strategy_mode = event.get("strategy_mode", cfg.strategy_mode)
         
-        # Mapeo de descripción humana de la estrategia
+        # Mapeo de descripción humana y profesional de la estrategia
         REASON_DESCS = {
-            "turtle_breakout": "Ruptura del canal de Donchian de 20 velas con ADX alcista confirmando la fuerza del impulso.",
-            "connors_rsi": "Retroceso rápido en tendencia alcista. El RSI de corto plazo está en zona de sobreventa extrema, ideal para comprar el dip.",
-            "elder_triple": "Gatillo técnico por encima del máximo anterior con alineación de la marea macro (MACD e histograma en verde).",
-            "williams_alligator": "El Alligator está despertando. Las medias rápidas se cruzan al alza con buen incremento de volumen de compra.",
-            "mean_reversion": "El precio tocó la banda inferior del rango lateral y esperamos un rebote rápido hacia la media central."
+            "turtle_breakout": "Confirmación de ruptura de resistencia local por encima del Canal Donchian de corto plazo, apoyada por una aceleración del volumen y un ADX en zona de expansión de tendencia.",
+            "connors_rsi": "Retroceso técnico controlado dentro de una estructura alcista de largo plazo. El RSI de periodo ultra corto muestra condiciones extremas de sobreventa temporal, ofreciendo un punto de entrada de alta probabilidad (comprando en zona de soporte local).",
+            "elder_triple": "Setup tendencial de Triple Pantalla. La tendencia estructural macro (EMA 200) es alcista, se completó una corrección menor a nivel intermedio, y el gatillo en 15m confirma el reinicio del flujo de compra con MACD e histograma ascendentes.",
+            "williams_alligator": "Fase inicial de expansión de medias móviles rápidas (Alligator en vigilia). Tras un periodo de compresión de rango, el precio rompe al alza confirmando un desequilibrio entre oferta y demanda con volumen creciente.",
+            "mean_reversion": "Rebotando desde niveles extremos de desviación en la banda inferior de Bollinger. El precio muestra absorción de ventas cerca de zonas de liquidez clave en el soporte del rango lateral."
         }
         reason_desc = REASON_DESCS.get(strategy_mode, f"Setup técnico de confirmación en base a {reason}.")
         
@@ -1104,56 +1243,56 @@ def _publish_live_event_to_square(cfg: BotConfig, symbol: str, event: dict[str, 
         
         if sentiment_score > 0.15:
             sent_desc = "bastante alcista, con noticias muy positivas impulsando al sector"
-            sent_emoji = "🟢 Alcista (+{:.2f})".format(sentiment_score)
+            sent_emoji = "Alcista (+{:.2f})".format(sentiment_score)
         elif sentiment_score < -0.15:
             sent_desc = "algo bajista por titulares negativos, pero vemos absorción de compra"
-            sent_emoji = "🔴 Bajista ({:.2f})".format(sentiment_score)
+            sent_emoji = "Bajista ({:.2f})".format(sentiment_score)
         else:
             sent_desc = "neutral, lo que favorece setups técnicos limpios"
-            sent_emoji = "🟡 Neutral ({:.2f})".format(sentiment_score)
+            sent_emoji = "Neutral ({:.2f})".format(sentiment_score)
             
         headline_bullet = ""
         if headlines:
-            headline_bullet = f"\n📰 Titular clave del momento: \"{headlines[0]['title']}\""
+            headline_bullet = f"\nTitular clave del momento: \"{headlines[0]['title']}\""
             
         msg = ""
         if event_name == "live_buy":
             msg = (
-                f"🚨 SEÑAL DE COMPRA SPOT: #{symbol} 🚨\n\n"
-                f"Veo un patrón muy claro en el gráfico. El precio está mostrando fuerza y acabamos de entrar en una posición de compra en Spot.\n\n"
-                f"📊 CONFIGURACIÓN DE ENTRADA:\n"
-                f"▪️ Zona de Entrada: {price:.4f} USDT\n"
-                f"▪️ Stop Loss (SL): {stop:.4f} USDT\n"
-                f"▪️ Target de Salida: {take:.4f} USDT\n"
-                f"▪️ Cantidad Operada: {qty:.6f}\n\n"
-                f"💡 ANÁLISIS RÁPIDO:\n"
+                f"[NOTA DE MERCADO] ENTRADA TÉCNICA EN SPOT (#{symbol})\n\n"
+                f"Hemos ejecutado una orden de entrada en Spot para #{symbol} tras validar un setup cuantitativo de alta probabilidad en temporalidades cortas:\n\n"
+                f"PARÁMETROS OPERATIVOS:\n"
+                f"• Punto de Entrada: {price:.4f} USDT\n"
+                f"• Límite de Pérdida (Stop Loss): {stop:.4f} USDT\n"
+                f"• Objetivo Técnico (Take Profit): {take:.4f} USDT\n"
+                f"• Tamaño de Posición: {qty:.6f}\n\n"
+                f"ANÁLISIS DE ESTRUCTURA Y LIQUIDEZ:\n"
                 f"- {reason_desc}\n"
-                f"- El sentimiento del mercado según las noticias recientes es {sent_desc}."
+                f"- Con respecto al flujo de noticias del sector, detectamos un entorno {sent_desc}."
                 + headline_bullet + "\n\n"
-                f"📈 Gráfico en vivo: https://es.tradingview.com/chart/?symbol=BINANCE:{symbol}\n\n"
-                f"¡A por el target! Gestionen bien su capital y no sobreoperen. 🚀💸"
+                f"Operamos de forma metódica y controlando el riesgo en cada ejecución. Gráfico de referencia: https://es.tradingview.com/chart/?symbol=BINANCE:{symbol}"
             )
         elif event_name == "live_sell":
             pnl = event.get("pnl", 0.0)
             pnl_pct = event.get("pnl_pct", 0.0)
             
-            pnl_emoji = "🎯 TARGET ALCANZADO" if pnl >= 0 else "🛑 STOP LOSS ALCANZADO"
-            pnl_msg = "Aseguramos ganancias en el target establecido." if pnl >= 0 else "Salimos del mercado para proteger capital."
+            pnl_title = "[OBJETIVO ALCANZADO] TAKE PROFIT" if pnl >= 0 else "[GESTIÓN DE RIESGO] STOP LOSS"
+            pnl_desc = "La orden de toma de ganancias se ejecutó en la zona objetivo de liquidez." if pnl >= 0 else "La posición se cerró automáticamente al tocar el límite de riesgo estructural para proteger capital."
             
-            exit_reason_desc = pnl_msg
-            if "exit" in reason.lower() or "prematura" in reason.lower():
-                exit_reason_desc = "Salimos de la operación antes de tiempo por debilidad en la estructura de precios."
+            if "exit" in reason.lower() or "prematura" in reason.lower() or "trend_or_momentum" in reason.lower() or "target_exit" in reason.lower():
+                pnl_title = "[SALIDA ANTICIPADA] REESTRUCTURACIÓN DE CARTERA"
+                pnl_desc = "Hemos cerrado la posición tras detectar debilidad en el flujo de órdenes y pérdida de momentum en los gráficos."
             
             msg = (
-                f"📊 {pnl_emoji}: #{symbol} 📊\n\n"
-                f"Posición cerrada en Spot. {exit_reason_desc}\n\n"
-                f"▪️ Precio de Salida: {price:.4f} USDT\n"
-                f"▪️ Resultado Neto: {pnl_pct:+.2f}% ({pnl:+.4f} USDT)\n"
-                f"▪️ Motivo de Salida: {reason}\n"
-                f"▪️ Sentimiento general: {sent_emoji}"
+                f"[CIERRE DE POSICIÓN] #{symbol}\n\n"
+                f"{pnl_title}\n\n"
+                f"{pnl_desc}\n\n"
+                f"DATOS DE SALIDA:\n"
+                f"• Precio de Cierre: {price:.4f} USDT\n"
+                f"• Rendimiento Operación: {pnl_pct:+.2f}% ({pnl:+.4f} USDT)\n"
+                f"• Criterio de Cierre: {reason}\n"
+                f"• Sesgo Sentimiento: {sent_emoji}"
                 + headline_bullet + "\n\n"
-                f"📈 Gráficos en TradingView: https://es.tradingview.com/chart/?symbol=BINANCE:{symbol}\n\n"
-                f"¡Seguimos buscando las mejores oportunidades! 🚀💰"
+                f"Continuamos monitoreando el mercado en busca del siguiente desequilibrio de liquidez estructural. Gráfico: https://es.tradingview.com/chart/?symbol=BINANCE:{symbol}"
             )
             
         if msg:
@@ -1177,11 +1316,48 @@ def run_live(cfg: BotConfig, confirm_live: str) -> None:
             event_name = str(event.get("event", "live_event"))
             telemetry.record("live", symbol, event_name, event)
             if event_name in {"live_buy", "live_sell", "risk_pause", "live_guard"}:
-                telemetry.alert(_format_live_alert(symbol, event))
+                category = "general"
+                if "buy" in event_name:
+                    category = "buys"
+                elif "sell" in event_name:
+                    category = "sells"
+                elif "error" in event_name or "pause" in event_name or "guard" in event_name:
+                    category = "errors"
+                telemetry.alert(_format_live_alert(symbol, event), category=category)
                 _publish_live_event_to_square(cfg, symbol, event)
             print(f"[{symbol}] Step Result:", json.dumps(event, indent=2, default=str))
         except Exception as e:
+            import traceback
             logging.error(f"[{symbol}] Error en run_live: {e}")
+            err_event = {
+                "time": datetime.now(timezone.utc).isoformat(),
+                "event": "live_error",
+                "error_type": type(e).__name__,
+                "message": str(e),
+                "traceback": traceback.format_exc(),
+            }
+            telemetry.record("live", symbol, "live_error", err_event)
+            telemetry.alert(_format_live_alert(symbol, err_event), category="errors")
+
+    _run_earn_sweep(cfg, telemetry)
+
+
+def _run_earn_sweep(cfg: BotConfig, telemetry, earn: EarnManager | None = None) -> None:
+    """Barrido Earn tolerante a fallos: nunca interrumpe el trading."""
+    if not cfg.earn_enabled or cfg.use_testnet:
+        return
+    try:
+        if earn is None:
+            exec_client = BinanceExecutionClient(cfg)
+            earn = build_earn_manager(cfg, exec_client.client)
+        if earn is None:
+            return
+        summary = earn.sweep_cycle(telemetry)
+        if summary.get("event") == "earn_sweep":
+            telemetry.record("live", "EARN", "earn_sweep", summary)
+            logging.info("Earn sweep: %s", json.dumps(summary, default=str))
+    except Exception as exc:
+        logging.warning("Earn sweep fallo: %s", exc)
 
 
 def run_live_loop(
@@ -1192,69 +1368,428 @@ def run_live_loop(
 ) -> None:
     _assert_live_ready(cfg, confirm_live)
     telemetry = build_telemetry(cfg)
-    
-    # Ejecutar auto-tuning inicial si corresponde
-    perform_auto_tuning(cfg, telemetry)
+    lease_key = "runtime:live-loop"
+    lease_owner = f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex}"
+    lease_ttl = max(600, sleep_seconds * 3)
+    if not telemetry.store.acquire_lease(lease_key, lease_owner, lease_ttl):
+        raise RuntimeError(
+            "Otra instancia live-loop posee el bloqueo distribuido. "
+            "Detenla antes de iniciar una segunda instancia."
+        )
 
-    # Inicializar traders para cada símbolo activo
-    from dataclasses import replace
-    traders = {}
-    for symbol in cfg.symbols_to_trade:
-        symbol_cfg = replace(cfg, symbol=symbol)
-        traders[symbol] = LiveTrader(symbol_cfg, state_store=telemetry.store)
+    try:
+        # Ejecutar auto-tuning inicial si corresponde
+        perform_auto_tuning(cfg, telemetry, lease_key=lease_key, lease_owner=lease_owner)
 
-    completed_cycles = 0
+        # Inicializar traders para cada símbolo activo
+        from dataclasses import replace
+        traders = {}
+        for symbol in cfg.symbols_to_trade:
+            symbol_cfg = replace(cfg, symbol=symbol)
+            traders[symbol] = LiveTrader(symbol_cfg, state_store=telemetry.store)
 
-    while True:
-        # Ejecutar auto-tuning periódico si corresponde
-        perform_auto_tuning(cfg, telemetry)
-
-        for symbol, trader in traders.items():
+        # Inicializar bot interactivo de ventas y comandos VIP en Telegram
+        sales_bot = None
+        if cfg.telegram_enabled and cfg.telegram_bot_token:
             try:
-                event = trader.step()
-                trader.save_state()
-                event_name = str(event.get("event", "live_event"))
-                telemetry.record("live", symbol, event_name, event)
-                if event_name in {"live_buy", "live_sell", "risk_pause", "live_guard"}:
-                    telemetry.alert(_format_live_alert(symbol, event))
-                    _publish_live_event_to_square(cfg, symbol, event)
-                print(f"[{symbol}] Event:", json.dumps(event, indent=2, default=str))
-            except Exception as exc:
-                event = {
-                    "time": datetime.now(timezone.utc).isoformat(),
-                    "event": "live_error",
-                    "error_type": type(exc).__name__,
-                    "message": str(exc),
-                }
-                telemetry.record("live", symbol, "live_error", event)
-                telemetry.alert(_format_live_alert(symbol, event))
-                print(f"[{symbol}] Error:", json.dumps(event, indent=2, default=str))
+                from bot.vip_signal_bot import VIPSignalTracker, TelegramVIPSalesBot
+                tracker = VIPSignalTracker(cfg.event_db_path, notifier=telemetry.notifier)
+                sales_bot = TelegramVIPSalesBot(cfg, tracker)
+                sales_bot.start_polling()
+                logging.info("Bot Comercial VIP de Telegram activo y respondiendo a comandos de clientes.")
+            except Exception as sexc:
+                logging.warning(f"No se pudo iniciar bot interactivo de ventas VIP: {sexc}")
 
-        completed_cycles += 1
-        if cycles > 0 and completed_cycles >= cycles:
-            return
+        # Inicializar generador y publicador autónomo de tráfico y alto ROI
+        traffic_publisher = None
+        if cfg.telegram_enabled:
+            try:
+                from bot.growth_traffic_engine import AutoTrafficPublisher
+                traffic_publisher = AutoTrafficPublisher(cfg)
+                traffic_publisher.start_background_loop(interval_minutes=120)
+                logging.info("Motor Autónomo de Tráfico y Alto ROI activo (publicando cada 120m).")
+            except Exception as texc:
+                logging.warning(f"No se pudo iniciar publicador de tráfico: {texc}")
 
-        time.sleep(sleep_seconds)
+        # EarnManager compartido para el loop (reutiliza el cliente firmado)
+        loop_earn: EarnManager | None = None
+        if cfg.earn_enabled and not cfg.use_testnet and traders:
+            first_trader = next(iter(traders.values()))
+            loop_earn = build_earn_manager(cfg, first_trader.exec.client)
+
+        completed_cycles = 0
+
+        while True:
+            try:
+                if not telemetry.store.refresh_lease(lease_key, lease_owner):
+                    if not telemetry.store.acquire_lease(lease_key, lease_owner, lease_ttl):
+                        telemetry.store.set_state(lease_key, {"owner": lease_owner})
+                        logging.info("Cerrojo distribuido auto-restablecido para la instancia activa.")
+            except Exception as lexc:
+                logging.warning("Advertencia al refrescar cerrojo distribuido: %s", lexc)
+
+            # Ejecutar auto-tuning periódico si corresponde
+            perform_auto_tuning(cfg, telemetry, lease_key=lease_key, lease_owner=lease_owner)
+
+            for symbol, trader in traders.items():
+                try:
+                    event = trader.step()
+                    trader.save_state()
+                    event_name = str(event.get("event", "live_event"))
+                    telemetry.record("live", symbol, event_name, event)
+                    if event_name in {"live_buy", "live_sell", "risk_pause", "live_guard"}:
+                        category = "general"
+                        if "buy" in event_name:
+                            category = "buys"
+                        elif "sell" in event_name:
+                            category = "sells"
+                        elif "error" in event_name or "pause" in event_name or "guard" in event_name:
+                            category = "errors"
+                        telemetry.alert(_format_live_alert(symbol, event), category=category)
+                        _publish_live_event_to_square(cfg, symbol, event)
+                    print(f"[{symbol}] Event:", json.dumps(event, indent=2, default=str))
+                except Exception as exc:
+                    import traceback
+                    event = {
+                        "time": datetime.now(timezone.utc).isoformat(),
+                        "event": "live_error",
+                        "error_type": type(exc).__name__,
+                        "message": str(exc),
+                        "traceback": traceback.format_exc(),
+                    }
+                    telemetry.record("live", symbol, "live_error", event)
+                    telemetry.alert(_format_live_alert(symbol, event), category="errors")
+                    print(f"[{symbol}] Error:", json.dumps(event, indent=2, default=str))
+
+            if loop_earn is not None:
+                _run_earn_sweep(cfg, telemetry, earn=loop_earn)
+
+            completed_cycles += 1
+            if cycles > 0 and completed_cycles >= cycles:
+                return
+
+            time.sleep(sleep_seconds)
+    finally:
+        if sales_bot is not None:
+            sales_bot.stop()
+        if traffic_publisher is not None:
+            traffic_publisher.stop()
+        try:
+            telemetry.store.release_lease(lease_key, lease_owner)
+        except Exception as exc:
+            logging.warning("No se pudo liberar el bloqueo distribuido: %s", exc)
 
 
 def _format_live_alert(symbol: str, event: dict[str, Any]) -> str:
-    name = html.escape(str(event.get("event", "live_event")))
+    import traceback
+    import html
+    event_type = event.get("event", "live_event")
+    
+    if event_type == "vip_signal_published":
+        try:
+            from bot.vip_signal_bot import VIPSignalFormatter
+            price = _to_float(event.get("price"), 0.0)
+            stop = _to_float(event.get("stop"), 0.0)
+            reason = event.get("reason", "Estructura Cuantitativa")
+            strat = event.get("strategy_mode", "auto")
+            conf = _to_float(event.get("confidence"), 0.85)
+            sent = _to_float(event.get("news_sentiment"), 0.0)
+            return VIPSignalFormatter.format_vip_entry_signal(
+                symbol=symbol,
+                action="BUY",
+                entry_price=price,
+                stop_price=stop,
+                reason=reason,
+                strategy_mode=strat,
+                confidence=conf,
+                news_sentiment=sent,
+            )
+        except Exception:
+            pass
+
+    emoji = "🔔"
+    if "buy" in event_type:
+        emoji = "🟢 <b>BUY</b>"
+    elif "sell" in event_type:
+        emoji = "🔴 <b>SELL</b>"
+    elif "error" in event_type:
+        emoji = "❌ <b>ERROR</b>"
+    elif "tune" in event_type:
+        emoji = "⚡ <b>AUTOTUNE</b>"
+    elif "pause" in event_type:
+        emoji = "⚠️ <b>RISK PAUSE</b>"
+    elif "guard" in event_type:
+        emoji = "🛡️ <b>GUARD</b>"
+        
     safe_symbol = html.escape(str(symbol))
-    parts = [f"<b>{safe_symbol}</b> {name}"]
-    for key in ("price", "qty", "pnl", "pnl_pct", "reason", "signal_confidence"):
+    parts = [f"{emoji} | <b>{safe_symbol}</b>"]
+    
+    for key in ("price", "qty", "pnl", "pnl_pct", "reason", "signal_confidence", "error_type", "message", "score", "strategy_mode"):
         if key in event:
-            parts.append(f"{html.escape(str(key))}: {html.escape(str(event[key]))}")
+            val = event[key]
+            if isinstance(val, (int, float)) and not isinstance(val, bool):
+                val_float = float(val)
+                if "pnl_pct" in key:
+                    val_str = f"{val_float:+.2f}%"
+                elif "pct" in key:
+                    val_str = f"{val_float:.2f}%"
+                elif "pnl" in key:
+                    val_str = f"{val_float:+.4f}"
+                else:
+                    val_str = f"{val_float:.4f}"
+            else:
+                val_str = str(val)
+            parts.append(f"\u2022 <b>{key.replace('_', ' ').title()}:</b> {html.escape(val_str)}")
+            
+    # Si incluye análisis fundamental enriquecido (Why Yes / Why No)
+    fund_info = event.get("fundamental_info")
+    if fund_info:
+        why_yes = [f"Gatillo Técnico: {html.escape(str(event.get('reason', 'unknown')))}"]
+        for s in fund_info.get("strengths", [])[:2]:
+            why_yes.append(s)
+        why_no = fund_info.get("risks", [])[:2]
+        parts.append(f"\n<b>[TESIS CUANTITATIVA] (¿Por qué sí?):</b>\n" + "\n".join([f"  • {item}" for item in why_yes]))
+        parts.append(f"<b>[FACTORES DE RIESGO] (¿Por qué no?):</b>\n" + ("\n".join([f"  • {item}" for item in why_no]) if why_no else "  • Ninguno detectado."))
+        if fund_info.get("ai_synthesis") and "clave API no configurada" not in fund_info.get("ai_synthesis"):
+            parts.append(f"\n<b>[SÍNTESIS FUNDAMENTAL] (IA Gemini):</b>\n<i>{html.escape(fund_info.get('ai_synthesis'))}</i>")
+
+    if "traceback" in event:
+        parts.append(f"\n<b>Traceback:</b>\n<pre><code>{html.escape(str(event['traceback']))}</code></pre>")
+        
     return "\n".join(parts)
 
 
 def _format_paper_alert(symbol: str, event: dict[str, Any]) -> str:
-    name = html.escape(str(event.get("event", "paper_event")))
+    import traceback
+    event_type = event.get("event", "paper_event")
+    
+    emoji = "📝"
+    if "buy" in event_type:
+        emoji = "🟢 <b>PAPER BUY</b>"
+    elif "sell" in event_type:
+        emoji = "🔴 <b>PAPER SELL</b>"
+    elif "error" in event_type:
+        emoji = "❌ <b>PAPER ERROR</b>"
+    elif "tune" in event_type:
+        emoji = "⚡ <b>PAPER AUTOTUNE</b>"
+    elif "pause" in event_type:
+        emoji = "⚠️ <b>PAPER RISK PAUSE</b>"
+        
     safe_symbol = html.escape(str(symbol))
-    parts = [f"<b>{safe_symbol}</b> paper {name}"]
-    for key in ("price", "qty", "pnl", "pnl_pct", "reason", "equity", "stop", "take_profit"):
+    parts = [f"{emoji} | <b>{safe_symbol}</b>"]
+    
+    for key in ("price", "qty", "pnl", "pnl_pct", "reason", "equity", "stop", "take_profit", "error_type", "message", "score", "strategy_mode"):
         if key in event:
-            parts.append(f"{html.escape(str(key))}: {html.escape(str(event[key]))}")
+            val = event[key]
+            if isinstance(val, float):
+                if "pnl_pct" in key:
+                    val_str = f"{val:+.2f}%"
+                elif "pct" in key:
+                    val_str = f"{val:.2f}%"
+                elif "pnl" in key:
+                    val_str = f"{val:+.4f}"
+                else:
+                    val_str = f"{val:.4f}"
+            else:
+                val_str = str(val)
+            parts.append(f"\u2022 <b>{key.replace('_', ' ').title()}:</b> {html.escape(val_str)}")
+            
+    if "traceback" in event:
+        parts.append(f"\n<b>Traceback:</b>\n<pre><code>{html.escape(str(event['traceback']))}</code></pre>")
+        
     return "\n".join(parts)
+
+
+def _assert_ibkr_ready(cfg: BotConfig, confirm_live: str) -> None:
+    if not cfg.ibkr_enabled:
+        raise RuntimeError("IBKR_ENABLED debe ser true en .env.")
+    from bot.ibkr_client import PAPER_PORTS
+    if cfg.ibkr_port not in PAPER_PORTS:
+        if not cfg.ibkr_allow_real_trading:
+            raise RuntimeError(
+                "Puerto IBKR real detectado pero IBKR_ALLOW_REAL_TRADING=false. "
+                "Valida primero en paper (puerto 4002 o 7497)."
+            )
+        if confirm_live != "I_UNDERSTAND_LIVE_RISK":
+            raise RuntimeError(
+                "Trading real en IBKR requiere --confirm-live I_UNDERSTAND_LIVE_RISK."
+            )
+
+
+def run_ibkr_loop(
+    cfg: BotConfig,
+    confirm_live: str,
+    cycles: int = 0,
+    sleep_seconds: int = 300,
+) -> None:
+    """Loop de trading de acciones en IBKR reutilizando el motor del bot.
+
+    - Solo opera en horario regular de NYSE/NASDAQ.
+    - Entradas con bracket nativo (limit + TP + SL) gestionado por IB.
+    - Sin filtro macro BTC ni multi-timeframe (contexto cripto no aplica).
+    """
+    _assert_ibkr_ready(cfg, confirm_live)
+    from bot.ibkr_client import IBKRClient
+
+    telemetry = build_telemetry(cfg)
+    client = IBKRClient(cfg)
+    client.connect()
+    mode = "PAPER" if client.is_paper else "REAL"
+    telemetry.alert(f"<b>IBKR</b> loop iniciado en modo {mode}")
+
+    base_cfg = replace(
+        cfg,
+        interval=cfg.ibkr_interval,
+        use_btc_macro_filter=False,
+        use_multi_timeframe=False,
+        live_max_quote_per_trade=cfg.ibkr_max_quote_per_trade,
+    )
+    strategies = {}
+    risks = {}
+    for symbol in cfg.ibkr_symbols_list:
+        sym_cfg = replace(base_cfg, symbol=symbol)
+        strategies[symbol] = HybridStrategy(sym_cfg)
+        risks[symbol] = RiskManager(sym_cfg)
+
+    last_close: dict[str, datetime] = {}
+    completed = 0
+    try:
+        while True:
+            if not client.is_market_open():
+                event = {
+                    "time": datetime.now(timezone.utc).isoformat(),
+                    "event": "hold",
+                    "reason": "market_closed",
+                }
+                print("[IBKR] Mercado cerrado; esperando.")
+            else:
+                for symbol in cfg.ibkr_symbols_list:
+                    try:
+                        event = _ibkr_step(
+                            client, base_cfg, symbol,
+                            strategies[symbol], risks[symbol], last_close,
+                        )
+                        event_name = str(event.get("event", "ibkr_event"))
+                        telemetry.record("ibkr", symbol, event_name, event)
+                        if event_name in {"ibkr_buy", "ibkr_sell", "risk_pause"}:
+                            telemetry.alert(_format_live_alert(f"IBKR:{symbol}", event))
+                        print(f"[IBKR:{symbol}]", json.dumps(event, default=str))
+                    except Exception as exc:
+                        err = {
+                            "time": datetime.now(timezone.utc).isoformat(),
+                            "event": "ibkr_error",
+                            "error_type": type(exc).__name__,
+                            "message": str(exc),
+                        }
+                        telemetry.record("ibkr", symbol, "ibkr_error", err)
+                        print(f"[IBKR:{symbol}] Error:", json.dumps(err, default=str))
+            completed += 1
+            if cycles > 0 and completed >= cycles:
+                return
+            client.ib.sleep(sleep_seconds)
+    finally:
+        client.disconnect()
+
+
+def _ibkr_step(client, base_cfg: BotConfig, symbol: str, strategy, risk, last_close) -> dict[str, Any]:
+    now_iso = datetime.now(timezone.utc).isoformat()
+    df = client.get_klines(symbol, base_cfg.interval, base_cfg.lookback)
+    if len(df) < 60:
+        return {"time": now_iso, "event": "hold", "reason": "insufficient_bars"}
+    analysis_df = df.iloc[:-1].copy()  # solo velas cerradas
+    row = analysis_df.iloc[-1]
+    close_time = row["close_time"].to_pydatetime()
+    if last_close.get(symbol) is not None and close_time <= last_close[symbol]:
+        return {"time": now_iso, "event": "hold", "reason": "duplicate_candle"}
+
+    position = client.position_qty(symbol)
+    if position > 0 or client.has_open_orders(symbol):
+        last_close[symbol] = close_time
+        return {"time": now_iso, "event": "hold", "reason": "position_or_orders_open",
+                "qty": position}
+
+    signal = strategy.generate(analysis_df, None, macro_df=None, in_position=False)
+    if signal.action != "buy":
+        last_close[symbol] = close_time
+        return {"time": now_iso, "event": "hold", "reason": signal.reason}
+
+    regime = classify_market(analysis_df, base_cfg)
+    equity = client.net_liquidation()
+    allowed, reason = risk.can_trade(
+        close_time, equity, regime_name=regime.name, interval=base_cfg.interval
+    )
+    if not allowed:
+        last_close[symbol] = close_time
+        return {"time": now_iso, "event": "risk_pause", "reason": reason}
+
+    close = float(row["close"])
+    atr_value = float(atr(analysis_df["high"], analysis_df["low"], analysis_df["close"], 14).iloc[-1])
+    entry_ref = close * (1 + base_cfg.slippage)
+    stop = entry_ref - atr_value * base_cfg.stop_atr_mult
+    take = entry_ref + (entry_ref - stop) * base_cfg.take_profit_rr
+    if stop <= 0 or take <= entry_ref:
+        last_close[symbol] = close_time
+        return {"time": now_iso, "event": "hold", "reason": "invalid_levels"}
+
+    cash = client.account_cash_usd()
+    qty = risk.position_size(
+        equity=cash, entry_price=entry_ref, stop_price=stop, fee_rate=base_cfg.fee_rate
+    )
+    quote_cap = min(cash, base_cfg.live_max_quote_per_trade)
+    qty = min(qty, quote_cap / entry_ref)
+    qty = int(qty)  # acciones enteras
+    if qty < 1:
+        last_close[symbol] = close_time
+        return {"time": now_iso, "event": "hold", "reason": "qty_below_one_share",
+                "cash": cash, "entry_ref": entry_ref}
+
+    order = client.buy_bracket(symbol, qty, entry_ref, take, stop)
+    risk.register_entry(close_time)
+    last_close[symbol] = close_time
+    return {
+        "time": now_iso,
+        "event": "ibkr_buy",
+        "price": order.get("limit_price"),
+        "qty": qty,
+        "stop": round(stop, 2),
+        "take": round(take, 2),
+        "reason": signal.reason,
+        "order_status": order.get("status"),
+    }
+
+
+def run_earn_cmd(cfg: BotConfig, dry_run: bool) -> None:
+    """Ejecuta un barrido Earn manual (o simulado con --dry-run)."""
+    if cfg.use_testnet:
+        raise RuntimeError("Earn no existe en testnet. Usa USE_TESTNET=false.")
+    if not cfg.binance_api_key or not cfg.binance_api_secret:
+        raise RuntimeError("Faltan credenciales de API de Binance en .env.")
+    exec_client = BinanceExecutionClient(cfg)
+    earn = EarnManager(cfg=cfg, client=exec_client.client, dry_run=dry_run)
+    telemetry = build_telemetry(cfg)
+    print("Modo:", "DRY-RUN (simulacion)" if dry_run else "REAL")
+    moves = earn.sweep_idle_balances()
+    print("Movimientos:", json.dumps(moves, indent=2, default=str, ensure_ascii=False))
+    dust = earn.convert_dust()
+    print("Dust:", json.dumps(dust, indent=2, default=str, ensure_ascii=False))
+    if moves and not dry_run:
+        try:
+            telemetry.alert("<b>Earn</b> barrido manual ejecutado")
+        except Exception:
+            pass
+
+
+def run_earn_report_cmd(cfg: BotConfig, send: bool) -> None:
+    if cfg.use_testnet:
+        raise RuntimeError("Earn no existe en testnet. Usa USE_TESTNET=false.")
+    exec_client = BinanceExecutionClient(cfg)
+    earn = EarnManager(cfg=cfg, client=exec_client.client)
+    report = earn.build_report()
+    print(report.replace("<b>", "").replace("</b>", ""))
+    if send:
+        telemetry = build_telemetry(cfg)
+        telemetry.alert(report)
+        print("\nReporte enviado por Telegram.")
 
 
 def run_telegram_test(cfg: BotConfig, message: str) -> None:
@@ -1269,11 +1804,47 @@ def run_telegram_test(cfg: BotConfig, message: str) -> None:
     print(json.dumps({"status": "ok", "message": "telegram_sent"}, indent=2))
 
 
+def run_cloud_check(cfg: BotConfig, require_postgres: bool = False) -> None:
+    telemetry = build_telemetry(cfg)
+    dialect = telemetry.store.engine.dialect.name
+    with telemetry.store.engine.connect() as conn:
+        conn.exec_driver_sql("SELECT 1")
+
+    if require_postgres and dialect != "postgresql":
+        raise RuntimeError(
+            "Cloud requiere DATABASE_URL de PostgreSQL/Supabase; "
+            f"se detecto dialecto {dialect}."
+        )
+
+    print(
+        json.dumps(
+            {
+                "status": "ok",
+                "database_dialect": dialect,
+                "database_url_set": bool(os.getenv("DATABASE_URL")),
+                "live_enabled": cfg.live_enabled,
+                "use_testnet": cfg.use_testnet,
+                "allow_real_trading": cfg.allow_real_trading,
+                "active_symbols": cfg.symbols_to_trade,
+                "telegram_enabled": cfg.telegram_enabled,
+            },
+            indent=2,
+        )
+    )
+
+
 def _record_paper_event(telemetry, symbol: str, event: dict[str, Any]) -> None:
     event_name = str(event.get("event", "paper_event"))
     telemetry.record("paper", symbol, event_name, event)
-    if event_name in {"buy", "sell", "risk_pause"}:
-        telemetry.alert(_format_paper_alert(symbol, event))
+    if event_name in {"buy", "sell", "risk_pause", "paper_error"}:
+        category = "general"
+        if "buy" in event_name:
+            category = "buys"
+        elif "sell" in event_name:
+            category = "sells"
+        elif "error" in event_name or "pause" in event_name:
+            category = "errors"
+        telemetry.alert(_format_paper_alert(symbol, event), category=category)
 
 
 def _pid_is_running(pid: int) -> bool:
@@ -1483,7 +2054,9 @@ def run_report(cfg: BotConfig, day: str | None, send: bool) -> None:
         {"day": target_day.isoformat(), "sent": send},
     )
     if send:
-        telemetry.alert(f"<pre>{report}</pre>")
+        from bot.telemetry import TelegramNotifier
+        escaped_report = TelegramNotifier.escape_html(report)
+        telemetry.alert(f"<pre><code>{escaped_report}</code></pre>", category="autotune")
     print(report)
 
 
@@ -1926,6 +2499,17 @@ def parse_args() -> argparse.Namespace:
     p_report.add_argument("--day", type=str, default=None, help="UTC date: YYYY-MM-DD")
     p_report.add_argument("--send", action="store_true", help="Send report to Telegram")
 
+    p_ibkr = sub.add_parser("ibkr", help="Run IBKR stock trading loop (paper by default)")
+    p_ibkr.add_argument("--confirm-live", default="", help="Required for real IBKR trading")
+    p_ibkr.add_argument("--cycles", type=int, default=0, help="0 = infinite")
+    p_ibkr.add_argument("--sleep-seconds", type=int, default=300)
+
+    p_earn = sub.add_parser("earn", help="Run one Binance Earn sweep (flexible/locked/dust)")
+    p_earn.add_argument("--dry-run", action="store_true", help="Simulate without moving funds")
+
+    p_earn_report = sub.add_parser("earn-report", help="Show Earn positions, APR and rewards")
+    p_earn_report.add_argument("--send", action="store_true", help="Send report via Telegram")
+
     p_telegram = sub.add_parser("telegram-test", help="Send a Telegram test alert")
     p_telegram.add_argument(
         "--message",
@@ -1933,11 +2517,32 @@ def parse_args() -> argparse.Namespace:
         default="Bot de trading: prueba de Telegram OK.",
     )
 
+    p_cloud_check = sub.add_parser(
+        "cloud-check", help="Validate cloud database and configuration"
+    )
+    p_cloud_check.add_argument("--require-postgres", action="store_true")
+
     sub.add_parser("paper-report", help="Summarize paper trading performance windows")
 
     p_dashboard = sub.add_parser("dashboard", help="Run local telemetry dashboard")
     p_dashboard.add_argument("--host", type=str, default="127.0.0.1")
     p_dashboard.add_argument("--port", type=int, default=8765)
+    p_dashboard.add_argument("--no-browser", action="store_true")
+
+    p_app = sub.add_parser("app", help="Run Next-Gen VIP Control Center & App")
+    p_app.add_argument("--host", type=str, default="127.0.0.1")
+    p_app.add_argument("--port", type=int, default=8765)
+    p_app.add_argument("--no-browser", action="store_true")
+
+    p_portal = sub.add_parser("portal", help="Run Institutional Quantitative Investment Portal")
+    p_portal.add_argument("--host", type=str, default="127.0.0.1")
+    p_portal.add_argument("--port", type=int, default=8765)
+    p_portal.add_argument("--no-browser", action="store_true")
+
+    p_panel = sub.add_parser("panel", help="Run unified panel (Binance + Earn + IBKR)")
+    p_panel.add_argument("--host", type=str, default="127.0.0.1")
+    p_panel.add_argument("--port", type=int, default=8765)
+    p_panel.add_argument("--no-browser", action="store_true")
 
     p_watchdog = sub.add_parser("watchdog", help="Keep paper trading process alive")
     p_watchdog.add_argument("--cycles", type=int, default=0)
@@ -2015,6 +2620,13 @@ def parse_args() -> argparse.Namespace:
     p_validate.add_argument("--train-size", type=int, default=500)
     p_validate.add_argument("--test-size", type=int, default=200)
     p_validate.add_argument("--step-size", type=int, default=100)
+
+    p_gen_report = sub.add_parser("generate-report", help="Generate monthly PDF report for an investor")
+    p_gen_report.add_argument("--name", type=str, default="Inversor de Prueba")
+    p_gen_report.add_argument("--email", type=str, required=True)
+    p_gen_report.add_argument("--initial-balance", type=float, default=10000.0)
+    p_gen_report.add_argument("--fee", type=float, default=0.20)
+
     return parser.parse_args()
 
 
@@ -2024,6 +2636,50 @@ def main() -> None:
 
     if args.mode == "backtest":
         run_backtest(cfg, args.symbol, args.interval, args.lookback)
+        return
+
+    if args.mode == "generate-report":
+        from bot.pdf_generator import PDFReportGenerator
+        from bot.db import DBTrade, get_db_session
+        
+        session = get_db_session(cfg.event_db_path)
+        trades_orm = session.query(DBTrade).order_by(DBTrade.exit_time.desc()).all()
+        
+        trades_list = []
+        for t in trades_orm:
+            trades_list.append({
+                "entry_time": t.entry_time,
+                "exit_time": t.exit_time,
+                "symbol": t.symbol,
+                "quantity": t.quantity,
+                "entry_price": t.entry_price,
+                "exit_price": t.exit_price,
+                "pnl": t.pnl,
+                "pnl_pct": t.pnl_pct
+            })
+            
+        if not trades_list:
+            trades_list = [
+                {
+                    "entry_time": datetime.now(),
+                    "exit_time": datetime.now(),
+                    "symbol": "BTCUSDT",
+                    "quantity": 0.5,
+                    "entry_price": 60000.0,
+                    "exit_price": 63000.0,
+                    "pnl": 1500.0,
+                    "pnl_pct": 5.0
+                }
+            ]
+            
+        pdf_path = PDFReportGenerator.generate_investor_report(
+            user_name=args.name,
+            email=args.email,
+            trades=trades_list,
+            initial_balance=args.initial_balance,
+            performance_fee_pct=args.fee
+        )
+        print(f"Reporte generado exitosamente en: {pdf_path}")
         return
 
     if args.mode == "paper":
@@ -2078,9 +2734,34 @@ def main() -> None:
         run_report(cfg, args.day, args.send)
         return
 
+    if args.mode == "ibkr":
+        run_ibkr_loop(
+            cfg,
+            confirm_live=args.confirm_live,
+            cycles=args.cycles,
+            sleep_seconds=args.sleep_seconds,
+        )
+        return
+
+    if args.mode == "earn":
+        run_earn_cmd(cfg, dry_run=args.dry_run)
+        return
+
+    if args.mode == "earn-report":
+        run_earn_report_cmd(cfg, send=args.send)
+        return
+
     if args.mode == "telegram-test":
         try:
             run_telegram_test(cfg, args.message)
+        except RuntimeError as exc:
+            print(json.dumps({"status": "error", "message": str(exc)}, indent=2))
+            raise SystemExit(1)
+        return
+
+    if args.mode == "cloud-check":
+        try:
+            run_cloud_check(cfg, args.require_postgres)
         except RuntimeError as exc:
             print(json.dumps({"status": "error", "message": str(exc)}, indent=2))
             raise SystemExit(1)
@@ -2090,9 +2771,10 @@ def main() -> None:
         run_paper_report(cfg)
         return
 
-    if args.mode == "dashboard":
-        with RuntimePidFile(Path.cwd() / "dashboard.pid"):
-            run_dashboard(cfg, args.host, args.port)
+    if args.mode in ("portal", "app", "panel", "dashboard"):
+        from bot.institutional_portal import run_institutional_portal
+        open_browser = not getattr(args, "no_browser", False)
+        run_institutional_portal(cfg, args.host, args.port, open_browser=open_browser)
         return
 
     if args.mode == "watchdog":

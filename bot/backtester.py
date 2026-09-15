@@ -123,6 +123,7 @@ class Backtester:
                                 quantity=qty,
                                 stop_price=stop,
                                 take_profit_price=take,
+                                entry_reason=signal.reason,
                             )
                             self.risk.register_entry(now)
 
@@ -147,6 +148,7 @@ class Backtester:
                         regime,
                         macro_context=macro_context,
                         in_position=True,
+                        entry_reason=position.entry_reason,
                     )
                     if signal.action == "exit":
                         exit_price = close * (1 - self.cfg.slippage)
@@ -213,10 +215,53 @@ class Backtester:
             equity_curve.append({"time": now, "equity": cash})
 
         metrics = self._metrics(equity_curve, trades)
+        pnl_pcts = [t.pnl_pct for t in trades]
+        mc_metrics = self.run_monte_carlo(pnl_pcts, float(self.cfg.initial_balance))
+        metrics.update(mc_metrics)
         return {
             "metrics": metrics,
             "trades": [asdict(t) for t in trades],
             "equity_curve": equity_curve,
+        }
+
+    def run_monte_carlo(self, pnl_pcts: list[float], initial_balance: float, iterations: int = 1000) -> dict[str, float]:
+        """Realiza simulaciones de Montecarlo barajando los retornos porcentuales de las operaciones."""
+        if not pnl_pcts:
+            return {"median_drawdown_pct": 0.0, "p95_drawdown_pct": 0.0, "risk_of_ruin_pct": 0.0}
+            
+        import random
+        
+        drawdowns = []
+        ruin_count = 0
+        
+        for _ in range(iterations):
+            shuffled = pnl_pcts.copy()
+            random.shuffle(shuffled)
+            
+            balance = initial_balance
+            equity_curve = [balance]
+            for ret in shuffled:
+                balance = balance * (1.0 + ret)
+                equity_curve.append(balance)
+                
+            equity_series = pd.Series(equity_curve)
+            peak = equity_series.cummax()
+            dd_series = (equity_series / peak) - 1.0
+            max_dd = abs(float(dd_series.min()))
+            drawdowns.append(max_dd)
+            
+            # Umbral de ruina técnica del 15%
+            if max_dd >= 0.15:
+                ruin_count += 1
+                
+        drawdowns.sort()
+        median_dd = drawdowns[len(drawdowns) // 2]
+        p95_dd = drawdowns[int(len(drawdowns) * 0.95)]
+        
+        return {
+            "median_drawdown_pct": float(median_dd * 100.0),
+            "p95_drawdown_pct": float(p95_dd * 100.0),
+            "risk_of_ruin_pct": float((ruin_count / iterations) * 100.0)
         }
 
     def _metrics(self, curve: list[dict[str, Any]], trades: list[Trade]) -> dict[str, float]:
