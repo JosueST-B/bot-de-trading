@@ -493,15 +493,15 @@ class HybridStrategy:
         in_position: bool = False,
         entry_reason: str | None = None,
     ) -> Signal:
-        hostile_regime_exit = self.cfg.use_regime_filter and regime.name in {
-            "bearish_trend",
-            "high_volatility",
-        }
-
-        if hostile_regime_exit:
-            return Signal("exit", 0.75, f"regime_exit:{regime.reason}")
-            
         if in_position:
+            hostile_regime_exit = self.cfg.use_regime_filter and regime.name in {
+                "bearish_trend",
+                "high_volatility",
+            }
+
+            if hostile_regime_exit:
+                return Signal("exit", 0.75, f"regime_exit:{regime.reason}")
+
             # 1. Salidas rápidas para estrategias de reversión / pullback rápido (Connors, Mean Reversion)
             is_pullback = entry_reason and ("connors_rsi" in entry_reason or "mean_reversion" in entry_reason)
             if is_pullback:
@@ -520,8 +520,8 @@ class HybridStrategy:
         entry = self._entry_signal(fx, regime)
         regime_multiplier = 1.0
         if self.cfg.use_regime_filter:
-            if entry.reason.startswith("mean_reversion") and regime.name == "range":
-                regime_multiplier = 1.0
+            if (entry.reason.startswith("mean_reversion") or "connors_rsi" in entry.reason) and regime.name in ("range", "bearish_trend"):
+                regime_multiplier = 0.85
             else:
                 regime_multiplier = regime.risk_multiplier
         confidence = min(entry.confidence * regime_multiplier, 1.0)
@@ -538,7 +538,11 @@ class HybridStrategy:
                 reason = ",".join(blockers) if blockers else "quality"
                 return Signal("hold", quality, f"quality_block:{reason}:{regime.name}")
             if self.cfg.use_regime_filter and not regime.allow_long:
-                return Signal("hold", confidence, f"regime_block:{regime.reason}")
+                # Permitir compras de rebote por reversión a la media en sobreventa extrema
+                if entry.reason.startswith("mean_reversion") or "connors_rsi" in entry.reason:
+                    pass
+                else:
+                    return Signal("hold", confidence, f"regime_block:{regime.reason}")
             if macro.get("enabled") and not macro.get("allow_long", False):
                 return Signal("hold", confidence, f"macro_block:{macro.get('reason')}:{regime.name}")
             return Signal("buy", max(confidence, quality), f"{entry.reason}:q{quality:.2f}:{regime.name}")

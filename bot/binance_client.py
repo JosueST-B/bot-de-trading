@@ -14,16 +14,26 @@ from bot.config import BotConfig
 
 class BinanceDataClient:
     BASE_URL = "https://api.binance.com"
+    BASE_URLS = [
+        "https://api.binance.com",
+        "https://data-api.binance.vision",
+        "https://api1.binance.com",
+        "https://api3.binance.com",
+    ]
 
     def __init__(self) -> None:
         self.session = requests.Session()
         self.session.trust_env = False
         self.session.proxies.clear()
+        self.session.headers.update({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "Accept": "application/json",
+        })
         retry = Retry(
-            total=3,
-            connect=3,
-            read=3,
-            backoff_factor=1.0,
+            total=2,
+            connect=2,
+            read=2,
+            backoff_factor=0.5,
             status_forcelist=(429, 500, 502, 503, 504),
             allowed_methods=("GET",),
         )
@@ -77,7 +87,6 @@ class BinanceDataClient:
         limit: int,
         end_time: int | None = None,
     ) -> pd.DataFrame:
-        url = f"{self.BASE_URL}/api/v3/klines"
         params = {"symbol": symbol.upper(), "interval": interval, "limit": limit}
         if end_time is not None:
             params["endTime"] = end_time
@@ -86,19 +95,21 @@ class BinanceDataClient:
         import logging
 
         response = None
-        for attempt in range(4):
+        last_err = None
+        for base in self.BASE_URLS:
+            url = f"{base}/api/v3/klines"
             try:
-                response = self.session.get(url, params=params, timeout=20)
-                response.raise_for_status()
-                break
-            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
-                if attempt == 3:
-                    raise
-                logging.warning(f"Conexión fallida al descargar klines para {symbol}. Reintentando en {attempt + 1}s... Error: {e}")
-                time.sleep(attempt + 1)
+                response = self.session.get(url, params=params, timeout=6)
+                if response.status_code == 200:
+                    break
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout, ConnectionResetError) as e:
+                last_err = e
+                continue
 
-        if response is None:
-            raise RuntimeError("No kline data returned by Binance.")
+        if response is None or response.status_code != 200:
+            if last_err is not None:
+                logging.warning(f"Fallback klines falló en todos los endpoints para {symbol}: {last_err}")
+            raise RuntimeError(f"No kline data returned by Binance for {symbol}.")
 
         raw = response.json()
         if not raw:
