@@ -20,5 +20,6 @@ __pycache__/
 .idea/
 .vscode/
 .agents/
+auto_evolution_state.json
 
 

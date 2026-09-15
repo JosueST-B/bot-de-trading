@@ -2,8 +2,10 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: Proprietary / Institutional](https://img.shields.io/badge/license-Institutional-navy.svg)](#licencia)
+| [Live Demo (GitHub Pages)](https://josuest-b.github.io/bot-de-trading/) |
+[![Hugging Face](https://img.shields.io/badge/Hugging%20Face-ProsusAI%2Ffinbert-yellow.svg)](https://huggingface.co/ProsusAI/finbert)
 [![Compliance: SOC 2 Type II / ISO 27001](https://img.shields.io/badge/compliance-SOC%202%20%7C%20ISO%2027001-emerald.svg)](#cumplimiento-y-seguridad)
-[![Tests Passing](https://img.shields.io/badge/tests-22%2F22%20passing-brightgreen.svg)](#verificación-y-tests)
+[![Tests Passing](https://img.shields.io/badge/tests-26%2F26%20passing-brightgreen.svg)](#verificación-y-tests)
 
 Plataforma integral de gestión de activos cuantitativos de grado institucional y sindicato algorítmico autónomo. Diseñada para la ejecución sistemática de estrategias multiactivo (Cripto Spot en Binance y Acciones en Interactive Brokers / NYSE / NASDAQ), optimización de liquidez en Binance Earn, supervisión de riesgo fiduciario en tiempo real y portal web para inversores auditado criptográficamente.
 
@@ -59,6 +61,25 @@ La plataforma abandona la discrecionalidad humana en favor de un **consenso mate
 - **Motor de Estrategias por Régimen**: Detección continua de régimen de mercado (	rend, reakout, pullback_trend, mean_reversion) con análisis multi-timeframe (ej. 15m operativo confirmado con contexto 1h/4h).
 - **Entry Quality Gate**: Filtro probabilístico que valida ADX, VWAP rolling, Donchian, Bandas de Bollinger, pendiente MACD y confirmación macro de Bitcoin antes de desplegar capital.
 - **Filtro Macro Cripto**: Inhibidor automático de compras largas ante debilidad macroestructural de Bitcoin.
+
+---
+
+---
+
+## Sistema de Auto-Evolución Continua & Hugging Face AI (`bot/auto_evolution.py`)
+
+La plataforma implementa un subsistema de **aprendizaje por refuerzo adaptativo continuo** (*Online Continuous Reinforcement Learning*) inspirado en las mejores arquitecturas cuantitativas de código abierto de GitHub y Hugging Face:
+
+1. **Inteligencia de Mercado Hugging Face (`ProsusAI/finbert`)**:
+   - Clasificación de narrativa financiera y sentimiento macroestructural en tiempo real.
+   - Vectorización de noticias y comunicados para ponderar la probabilidad de ruptura alcista/bajista.
+2. **Bandit de Refuerzo & Thompson Sampling (Self-Improving Engine)**:
+   - Supervisión continua de cada operación cerrada (PnL, ratio de ganancia, deslizamiento y volatilidad de régimen).
+   - Recalibración automática de los pesos del consenso (`Alpha Hawkes`, `Momentum Trend`, `Hugging Face Sentiment`, `Mean Reversion`) y los multiplicadores de protección (`ATR Stop Multiplier` y `Confidence Gate`).
+   - Detección autónoma de cambio de régimen (*Regime Drift Detection*): si la volatilidad aumenta, reduce la exposición y amplía los márgenes de seguridad automáticamente sin intervención manual.
+3. **Telemetría e Inferencia en Vivo**:
+   - Consulta de estado vía REST API: `GET /api/evolution/status`.
+   - Ejecución de pasos de aprendizaje estocástico en vivo: `POST /api/evolution/train-step`.
 
 ---
 

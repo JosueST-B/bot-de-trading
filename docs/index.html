@@ -1,30 +1,4 @@
-from __future__ import annotations
-
-import html
-import json
-import logging
-import os
-import random
-import threading
-import time
-import webbrowser
-from datetime import datetime, timezone
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any
-from urllib.parse import parse_qs, urlparse
-
-from sqlalchemy import text
-
-from bot.app_dashboard import AppDashboardHandler, DASHBOARD_HTML
-from bot.config import BotConfig
-from bot.db import create_db_engine, get_db_session
-from bot.enterprise_manager import EnterpriseManager
-from bot.growth_traffic_engine import HighROIScreener, HuggingFaceSentimentEngine
-from bot.pdf_generator import PDFReportGenerator
-from bot.telemetry import TelegramNotifier
-from bot.vip_signal_bot import VIPSignalTracker
-
-INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
+<html lang="es">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1031,7 +1005,7 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
       <div class="vehicle-panel">
         <div>
           <div class="veh-img-wrap">
-            <img src="/static/images/hft_datacenter.jpg" alt="Quant Alpha Core">
+            <img src="static/images/hft_datacenter.jpg" alt="Quant Alpha Core">
             <span class="veh-img-badge">[EQUINIX NY4] · MAX DD 6.0%</span>
           </div>
           <div class="veh-class">Clase A · Conservador</div>
@@ -1059,7 +1033,7 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
         <div class="tier-flag">MÁS SOLICITADO</div>
         <div>
           <div class="veh-img-wrap">
-            <img src="/static/images/stock_exchange.jpg" alt="Syndicate Multi-Asset">
+            <img src="static/images/stock_exchange.jpg" alt="Syndicate Multi-Asset">
             <span class="veh-img-badge">[BINANCE + IBKR] · HÍBRIDO</span>
           </div>
           <div class="veh-class" style="color:var(--accent-bright);">Clase B · Crecimiento Multiactivo</div>
@@ -1086,7 +1060,7 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
       <div class="vehicle-panel">
         <div>
           <div class="veh-img-wrap">
-            <img src="/static/images/trading_floor.jpg" alt="Whale Custom Mandate">
+            <img src="static/images/trading_floor.jpg" alt="Whale Custom Mandate">
             <span class="veh-img-badge">[DESK EXCLUSIVO] · NO-CUSTODIAL</span>
           </div>
           <div class="veh-class" style="color:var(--gold-bright);">Clase C · Mandato Institucional</div>
@@ -1199,7 +1173,7 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
     <div class="infra-grid">
       <div class="infra-card">
         <div class="infra-img-wrap">
-          <img src="/static/images/trading_floor.jpg" alt="Mesa de Negociación Cuantitativa">
+          <img src="static/images/trading_floor.jpg" alt="Mesa de Negociación Cuantitativa">
           <span class="infra-badge-float">SUPERVISIÓN 24/7</span>
         </div>
         <div class="infra-body">
@@ -1218,7 +1192,7 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
 
       <div class="infra-card">
         <div class="infra-img-wrap">
-          <img src="/static/images/hft_datacenter.jpg" alt="Clúster HFT Dedicado">
+          <img src="static/images/hft_datacenter.jpg" alt="Clúster HFT Dedicado">
           <span class="infra-badge-float">EQUINIX NY4</span>
         </div>
         <div class="infra-body">
@@ -1237,7 +1211,7 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
 
       <div class="infra-card">
         <div class="infra-img-wrap">
-          <img src="/static/images/stock_exchange.jpg" alt="Conectividad FIX y Gateways Globales">
+          <img src="static/images/stock_exchange.jpg" alt="Conectividad FIX y Gateways Globales">
           <span class="infra-badge-float">FIX 4.4 / TWS</span>
         </div>
         <div class="infra-body">
@@ -1606,7 +1580,7 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
   <div class="modal-dialog">
     <button class="modal-x" onclick="closeModal('depModal')">[X]</button>
     <h3 style="font-size:15px; font-weight:800; text-transform:uppercase; margin-bottom:6px; color:#fff;">Apertura de Asignación Cuantitativa</h3>
-    <img src="/static/images/stock_exchange.jpg" alt="Apertura Institucional" style="width:100%; height:110px; object-fit:cover; border-radius:4px; margin-bottom:12px; border:1px solid var(--border);">
+    <img src="static/images/stock_exchange.jpg" alt="Apertura Institucional" style="width:100%; height:110px; object-fit:cover; border-radius:4px; margin-bottom:12px; border:1px solid var(--border);">
     <p style="font-size:11px; color:var(--text-muted); margin-bottom:14px;">
       Registra tu aporte institucional para asignación al clúster algorítmico y recepción de extractos mensuales.
     </p>
@@ -1650,7 +1624,7 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
   <div class="modal-dialog">
     <button class="modal-x" onclick="closeModal('apiModal')">[X]</button>
     <h3 style="font-size:15px; font-weight:800; text-transform:uppercase; margin-bottom:6px; color:#fff;">Enlace No Custodial vía API Key</h3>
-    <img src="/static/images/security_vault.jpg" alt="Cifrado Criptográfico y Seguridad de Grado Militar" style="width:100%; height:110px; object-fit:cover; border-radius:4px; margin-bottom:12px; border:1px solid var(--border-accent);">
+    <img src="static/images/security_vault.jpg" alt="Cifrado Criptográfico y Seguridad de Grado Militar" style="width:100%; height:110px; object-fit:cover; border-radius:4px; margin-bottom:12px; border:1px solid var(--border-accent);">
     
     <div class="security-shield">
       <b>PROTOCOLO DE SEGURIDAD NO CUSTODIAL ESTRICTO:</b>
@@ -2240,437 +2214,3 @@ window.addEventListener('resize', drawChart);
 </script>
 </body>
 </html>
-"""
-
-
-class InstitutionalPortalHandler(AppDashboardHandler):
-    """Manejador HTTP institucional con soporte completo para auditoría e inversores."""
-
-    def do_GET(self) -> None:
-        parsed = urlparse(self.path)
-        raw_path = parsed.path
-        path = raw_path.rstrip("/") if len(raw_path) > 1 else raw_path
-
-        # 1. Favicon SVG handler (prevents browser 404)
-        if path in ("/favicon.ico", "/favicon.svg", "/favicon.png"):
-            favicon_svg = (
-                b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">'
-                b'<rect width="32" height="32" rx="6" fill="#0284c7"/>'
-                b'<polygon points="16,6 26,24 6,24" fill="#ffffff"/>'
-                b'<circle cx="16" cy="18" r="3" fill="#38bdf8"/>'
-                b'</svg>'
-            )
-            self.send_response(200)
-            self.send_header("Content-Type", "image/svg+xml")
-            self.send_header("Content-Length", str(len(favicon_svg)))
-            self.send_header("Cache-Control", "public, max-age=86400")
-            self.end_headers()
-            try:
-                self.wfile.write(favicon_svg)
-            except (ConnectionError, BrokenPipeError):
-                pass
-            return
-
-        # 2. Static files
-        if path.startswith("/static/"):
-            rel_path = path.lstrip("/").replace("/", os.sep)
-            if os.path.isfile(rel_path):
-                ext = os.path.splitext(rel_path)[1].lower()
-                mime = "image/jpeg" if ext in (".jpg", ".jpeg") else ("image/png" if ext == ".png" else "application/octet-stream")
-                try:
-                    with open(rel_path, "rb") as f:
-                        content = f.read()
-                    self.send_response(200)
-                    self.send_header("Content-Type", mime)
-                    self.send_header("Content-Length", str(len(content)))
-                    self.send_header("Cache-Control", "public, max-age=86400")
-                    self.end_headers()
-                    self.wfile.write(content)
-                    return
-                except (ConnectionError, BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
-                    return
-            self.send_error(404, "File not found")
-            return
-
-        # 3. Main institutional portal views
-        if path in ("/", "/investor", "/portal", "/index", "/index.html", "/home"):
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.end_headers()
-            self.wfile.write(INSTITUTIONAL_PORTAL_HTML.encode("utf-8"))
-            return
-
-        # 4. Operator admin workstation
-        if path in ("/admin", "/control", "/dashboard", "/app"):
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.end_headers()
-            self.wfile.write(DASHBOARD_HTML.encode("utf-8"))
-            return
-
-        # 5. Investor APIs
-        if path == "/api/investor/stats":
-            self._handle_api_stats()
-            return
-
-        if path == "/api/investor/portfolio":
-            self._handle_api_portfolio()
-            return
-
-        if path == "/api/investor/report-pdf":
-            self._handle_report_pdf()
-            return
-
-        if path == "/api/investor/report-csv":
-            self._handle_report_csv()
-            return
-
-        if path == "/api/investor/report-json":
-            self._handle_report_json()
-            return
-
-        # 6. Auto-Evolution & Hugging Face Intelligence APIs
-        if path == "/api/evolution/status":
-            from bot.auto_evolution import get_evolution_engine
-            self._send_json(get_evolution_engine().get_status())
-            return
-
-        if path == "/api/evolution/train-step":
-            from bot.auto_evolution import get_evolution_engine
-            self._send_json(get_evolution_engine().step_evolution())
-            return
-
-        # 7. Graceful GET fallback for POST endpoints (prevents 404 on browser navigation)
-        if path in ("/api/investor/deposit", "/api/investor/withdraw", "/api/investor/connect-api"):
-            self._send_json({
-                "status": "ready",
-                "endpoint": path,
-                "protocol": "Aethelgard Fiduciary API",
-                "method_required": "POST",
-                "description": "Endpoint activo para conciliación de transacciones y custodia no custodial.",
-            })
-            return
-
-        # 8. Delegar a AppDashboardHandler para rutas /api/status, /api/scanner, etc.
-        dashboard_routes = (
-            "/api/status", "/api/scanner", "/api/top_movers",
-            "/api/signals", "/api/logs"
-        )
-        if path in dashboard_routes:
-            super().do_GET()
-            return
-
-        # 9. Fallback universal (SPA Router): Cualquier otra URL sirve el portal con 200 OK
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.end_headers()
-        self.wfile.write(INSTITUTIONAL_PORTAL_HTML.encode("utf-8"))
-
-    def do_POST(self) -> None:
-        parsed = urlparse(self.path)
-        path = parsed.path.rstrip("/") if len(parsed.path) > 1 else parsed.path
-
-        if path == "/api/investor/deposit":
-            self._handle_deposit()
-            return
-
-        if path == "/api/investor/withdraw":
-            self._handle_withdraw()
-            return
-
-        if path == "/api/investor/connect-api":
-            self._handle_connect_api()
-            return
-
-        if path == "/api/evolution/train-step":
-            from bot.auto_evolution import get_evolution_engine
-            self._send_json(get_evolution_engine().step_evolution())
-            return
-
-        # Delegar a AppDashboardHandler
-        super().do_POST()
-
-    def _send_json(self, data: Any, status: int = 200) -> None:
-        try:
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.end_headers()
-            self.wfile.write(json.dumps(data, default=str).encode("utf-8"))
-        except (ConnectionError, BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
-            pass
-
-    def _handle_api_stats(self) -> None:
-        cfg: BotConfig = getattr(self.server, "cfg", BotConfig.from_env())
-        tracker = VIPSignalTracker(cfg.event_db_path)
-        stats = tracker.get_stats()
-        tracker.close()
-
-        res = {
-            "agency_name": "Aethelgard Quantitative Capital",
-            "sharpe_ratio": 2.42,
-            "sortino_ratio": 3.10,
-            "win_rate_pct": stats.get("win_rate_pct", 78.5),
-            "total_trades": stats.get("total_signals", 42),
-            "max_drawdown_pct": -6.4,
-            "profit_factor": 2.65,
-            "wallet_usdt": cfg.crypto_payment_wallet_usdt,
-        }
-        self._send_json(res)
-
-    def _handle_api_portfolio(self) -> None:
-        parsed = urlparse(self.path)
-        params = parse_qs(parsed.query)
-        email = params.get("email", ["investor@aethelgard.com"])[0]
-
-        cfg: BotConfig = getattr(self.server, "cfg", BotConfig.from_env())
-        user_name = "Alejandro Dupont"
-        tier = "Syndicate Multi-Asset"
-
-        try:
-            session = get_db_session(cfg.event_db_path)
-            from bot.db import DBUser
-            u = session.query(DBUser).filter(DBUser.email == email).first()
-            if u:
-                user_name = u.name
-            session.close()
-        except Exception:
-            pass
-
-        data = {
-            "name": user_name,
-            "email": email,
-            "tier": tier,
-            "status": "VERIFICADO / ACTIVO",
-            "initial_deposit": 5000.0,
-            "total_equity": 5782.50,
-            "net_profit": 782.50,
-            "roi_pct": 15.65,
-            "available_cash": 2140.0,
-            "positions": [
-                {"symbol": "SOL/USDT", "type": "Spot Momentum", "entry_price": 144.50, "current_price": 148.80, "pnl_pct": 6.02},
-                {"symbol": "NVDA", "type": "NASDAQ Equity", "entry_price": 122.40, "current_price": 128.50, "pnl_pct": 4.41},
-                {"symbol": "ETH/USDT", "type": "Spot Trend", "entry_price": 2580.0, "current_price": 2640.50, "pnl_pct": 3.48},
-            ]
-        }
-        self._send_json(data)
-
-    def _handle_deposit(self) -> None:
-        cfg: BotConfig = getattr(self.server, "cfg", BotConfig.from_env())
-        content_len = int(self.headers.get("Content-Length", 0))
-        post_body = self.rfile.read(content_len)
-
-        try:
-            payload = json.loads(post_body.decode("utf-8"))
-            name = payload.get("name", "").strip()
-            email = payload.get("email", "").strip()
-            txid = payload.get("txid", "").strip()
-            tier = payload.get("tier", "Quant Alpha Core")
-        except Exception:
-            self._send_json({"status": "error", "message": "Datos inválidos"}, status=400)
-            return
-
-        try:
-            session = get_db_session(cfg.event_db_path)
-            mgr = EnterpriseManager(session)
-            user = mgr.create_user(email=email, name=name, role="investor")
-            session.close()
-        except Exception as e:
-            logging.warning(f"Error DB usuario inversor: {e}")
-
-        notifier = TelegramNotifier(cfg)
-        notif_text = (
-            f"[NOTIFICACIÓN AUDITADA] NUEVA ASIGNACIÓN DE INVERSIÓN REGISTRADA\n\n"
-            f"• Titular: {html.escape(name)}\n"
-            f"• Email: {html.escape(email)}\n"
-            f"• Mandato: {html.escape(tier)}\n"
-            f"• Hash TXID:\n{html.escape(txid)}\n\n"
-            f"El depósito ha sido registrado en el ledger institucional para su conciliación de bloques."
-        )
-        notifier.send(notif_text, category="buys")
-
-        self._send_json({
-            "status": "success",
-            "message": f"Solicitud confirmada. Tu aporte ({tier}) ha sido registrado en el ledger institucional para conciliación de bloques.",
-        })
-
-    def _handle_withdraw(self) -> None:
-        cfg: BotConfig = getattr(self.server, "cfg", BotConfig.from_env())
-        content_len = int(self.headers.get("Content-Length", 0))
-        post_body = self.rfile.read(content_len)
-
-        try:
-            payload = json.loads(post_body.decode("utf-8"))
-            email = payload.get("email", "").strip()
-            amount = float(payload.get("amount", 0.0))
-            network = payload.get("network", "TRC20")
-            address = payload.get("address", "").strip()
-        except Exception:
-            self._send_json({"status": "error", "message": "Datos inválidos"}, status=400)
-            return
-
-        ticket_id = f"AQC-WTH-{random.randint(10000, 99999)}"
-        notifier = TelegramNotifier(cfg)
-        notif_text = (
-            f"[NOTIFICACIÓN AUDITADA] SOLICITUD DE RETIRO DE FONDOS REGISTRADA\n\n"
-            f"• Ticket: {ticket_id}\n"
-            f"• Inversor: {html.escape(email)}\n"
-            f"• Importe: ${amount:,.2f} USD\n"
-            f"• Red/Método: {network}\n"
-            f"• Destino: {html.escape(address)}\n\n"
-            f"SLA de Ejecución Garantizado: 24 horas hábiles tras verificación de seguridad."
-        )
-        notifier.send(notif_text, category="buys")
-
-        self._send_json({
-            "status": "success",
-            "ticket_id": ticket_id,
-            "message": f"Solicitud #{ticket_id} registrada con éxito. Se liquidarán ${amount:,.2f} USD a tu dirección en menos de 24 horas.",
-        })
-
-    def _handle_connect_api(self) -> None:
-        cfg: BotConfig = getattr(self.server, "cfg", BotConfig.from_env())
-        content_len = int(self.headers.get("Content-Length", 0))
-        post_body = self.rfile.read(content_len)
-
-        try:
-            payload = json.loads(post_body.decode("utf-8"))
-            name = payload.get("name", "").strip()
-            email = payload.get("email", "").strip()
-            platform = payload.get("platform", "binance")
-            api_key = payload.get("apiKey", "").strip()
-            api_secret = payload.get("apiSecret", "").strip()
-        except Exception:
-            self._send_json({"status": "error", "message": "Datos inválidos"}, status=400)
-            return
-
-        try:
-            session = get_db_session(cfg.event_db_path)
-            mgr = EnterpriseManager(session)
-            user = mgr.create_user(email=email, name=name, role="investor")
-            mgr.add_api_credential(user.id, platform=platform, api_key=api_key, api_secret=api_secret)
-            session.close()
-        except Exception as e:
-            logging.warning(f"Error al guardar credencial API: {e}")
-
-        notifier = TelegramNotifier(cfg)
-        notif_text = (
-            f"[NOTIFICACIÓN AUDITADA] CONEXIÓN NO CUSTODIAL API REGISTRADA\n\n"
-            f"• Titular: {html.escape(name)}\n"
-            f"• Email: {html.escape(email)}\n"
-            f"• Broker: {platform.upper()}\n"
-            f"• Seguridad: Cifrado en reposo AES-256 PBKDF2 completado.\n"
-            f"• Restricción: Permisos de retiro desactivados por diseño."
-        )
-        notifier.send(notif_text, category="buys")
-
-        self._send_json({
-            "status": "success",
-            "message": f"Conexión no custodial exitosa. La API Key de {platform.upper()} ha sido cifrada con AES-256 y enlazada de forma segura.",
-        })
-
-    def _handle_report_pdf(self) -> None:
-        cfg: BotConfig = getattr(self.server, "cfg", BotConfig.from_env())
-        trades_sample = [
-            {"symbol": "SOLUSDT", "side": "BUY", "entry_price": 144.50, "exit_price": 153.20, "pnl": 425.0, "pnl_pct": 6.02, "entry_time": "2026-09-02", "exit_time": "2026-09-04"},
-            {"symbol": "BTCUSDT", "side": "BUY", "entry_price": 58900.0, "exit_price": 61250.0, "pnl": 580.0, "pnl_pct": 3.98, "entry_time": "2026-09-05", "exit_time": "2026-09-07"},
-            {"symbol": "NVDA", "side": "BUY", "entry_price": 122.40, "exit_price": 127.80, "pnl": 310.0, "pnl_pct": 4.41, "entry_time": "2026-09-08", "exit_time": "2026-09-09"},
-            {"symbol": "ETHUSDT", "side": "BUY", "entry_price": 2580.0, "exit_price": 2670.0, "pnl": 350.0, "pnl_pct": 3.48, "entry_time": "2026-09-10", "exit_time": "2026-09-11"},
-        ]
-        
-        pdf_path = PDFReportGenerator.generate_investor_report(
-            user_name="Inversor Institucional",
-            email="investor@aethelgard.com",
-            trades=trades_sample,
-            initial_balance=10000.0,
-            performance_fee_pct=0.20,
-        )
-
-        if os.path.exists(pdf_path):
-            with open(pdf_path, "rb") as f:
-                pdf_data = f.read()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/pdf")
-            self.send_header("Content-Disposition", "inline; filename=Certificado_Auditoria_Aethelgard.pdf")
-            self.end_headers()
-            self.wfile.write(pdf_data)
-        else:
-            self.send_response(404)
-            self.end_headers()
-
-    def _handle_report_csv(self) -> None:
-        csv_rows = [
-            "ID,Timestamp,Asset,Market,Side,Entry_Price,Exit_Price,Size_USD,Net_PnL_USD,Return_Pct,Tx_Hash_Verification",
-            "AQC-8821,2026-09-02T14:15:00Z,SOL/USDT,Spot Momentum,BUY,144.50,153.20,5000.00,+425.00,+6.02%,0x4b7f1982103fca91",
-            "AQC-8822,2026-09-05T09:30:00Z,BTC/USDT,Poisson Trend,BUY,58900.00,61250.00,10000.00,+580.00,+3.98%,0x8e2a4410cd72b930",
-            "AQC-8823,2026-09-08T15:45:00Z,NVDA,NASDAQ Equity,BUY,122.40,127.80,6500.00,+310.00,+4.41%,0x1c3d7729aa01ee45",
-            "AQC-8824,2026-09-10T20:10:00Z,ETH/USDT,OrderBook Microstructure,BUY,2580.00,2670.00,7500.00,+350.00,+3.48%,0x9f0b5512ff3401ab",
-        ]
-        csv_content = "\n".join(csv_rows)
-        csv_bytes = csv_content.encode("utf-8")
-        try:
-            self.send_response(200)
-            self.send_header("Content-Type", "text/csv; charset=utf-8")
-            self.send_header("Content-Disposition", 'attachment; filename="Libro_Mayor_Auditoria_Aethelgard.csv"')
-            self.send_header("Content-Length", str(len(csv_bytes)))
-            self.end_headers()
-            self.wfile.write(csv_bytes)
-        except (ConnectionError, BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
-            pass
-
-    def _handle_report_json(self) -> None:
-        report = {
-            "syndicate": "Aethelgard Quantitative Asset Management",
-            "generated_at": datetime.now(timezone.utc).isoformat(),
-            "fiduciary_standard": "Pure Mathematical Discretion & Multi-Broker DMA",
-            "telemetry": {
-                "sharpe_ratio": 2.42,
-                "sortino_ratio": 3.10,
-                "win_rate_pct": 78.5,
-                "profit_factor": 2.65,
-                "max_drawdown_pct": -6.4,
-                "delta_neutrality_pct": 99.4,
-                "circuit_breakers": {
-                    "zero_loss_kill_switch": "ARMED_STANDBY",
-                    "volatility_limit_15m_pct": 5.0,
-                    "leverage": "1.0x (Spot Physical Custody)"
-                }
-            },
-            "audited_ledger": [
-                {"id": "AQC-8821", "symbol": "SOL/USDT", "side": "BUY", "entry": 144.50, "exit": 153.20, "pnl_usd": 425.0, "pnl_pct": 6.02, "hash": "0x4b7f1982103fca91"},
-                {"id": "AQC-8822", "symbol": "BTC/USDT", "side": "BUY", "entry": 58900.0, "exit": 61250.0, "pnl_usd": 580.0, "pnl_pct": 3.98, "hash": "0x8e2a4410cd72b930"},
-                {"id": "AQC-8823", "symbol": "NVDA", "side": "BUY", "entry": 122.40, "exit": 127.80, "pnl_usd": 310.0, "pnl_pct": 4.41, "hash": "0x1c3d7729aa01ee45"},
-                {"id": "AQC-8824", "symbol": "ETH/USDT", "side": "BUY", "entry": 2580.0, "exit": 2670.0, "pnl_usd": 350.0, "pnl_pct": 3.48, "hash": "0x9f0b5512ff3401ab"}
-            ]
-        }
-        self._send_json(report)
-
-
-
-def run_institutional_portal(
-    cfg: BotConfig,
-    host: str = "127.0.0.1",
-    port: int = 8765,
-    open_browser: bool = True,
-) -> None:
-    """Inicia el Portal Institucional y Servidor de Inversión Cuantitativa."""
-    ThreadingHTTPServer.allow_reuse_address = True
-    server = ThreadingHTTPServer((host, port), InstitutionalPortalHandler)
-    server.cfg = cfg  # type: ignore
-
-    url = f"http://{host}:{port}"
-    print("\n" + "=" * 60)
-    print("[PORTAL INSTITUCIONAL] Aethelgard Quantitative Capital")
-    print(f"[PORTAL INSTITUCIONAL] Acceso Inversores: {url}")
-    print(f"[PORTAL INSTITUCIONAL] Terminal Operador: {url}/admin")
-    print("=" * 60 + "\n")
-
-    if open_browser:
-        try:
-            threading.Timer(1.0, lambda: webbrowser.open(url)).start()
-        except Exception:
-            pass
-
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        server.shutdown()
