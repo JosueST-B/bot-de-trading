@@ -262,13 +262,23 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
 
 <div class="container">
 
-  <!-- Operations Control Panoramic Banner -->
-  <div style="position:relative; border-radius:10px; overflow:hidden; border:1px solid var(--border); margin-bottom:18px; height:130px;">
-    <img src="/static/images/trading_floor.jpg" alt="Mesa de Operaciones Cuantitativas" style="width:100%; height:100%; object-fit:cover; object-position:center 30%; filter:brightness(0.65);">
-    <div style="position:absolute; inset:0; background:linear-gradient(90deg, rgba(10,14,23,0.92) 0%, rgba(10,14,23,0.65) 45%, rgba(10,14,23,0.1) 100%); display:flex; flex-direction:column; justify-content:center; padding:18px 24px;">
-      <div style="font-size:10px; font-weight:700; text-transform:uppercase; color:#38bdf8; letter-spacing:1px; margin-bottom:3px;">CENTRO DE OPERACIONES & EJECUCIÓN CUANTITATIVA</div>
-      <div style="font-size:18px; font-weight:800; color:#fff; margin-bottom:4px;">Mesa de Arbitraje Estadístico & Despliegue HFT</div>
-      <div style="font-size:11px; color:var(--text-muted); max-width:680px;">Supervisión en vivo de microestructura de mercado, control automatizado de apalancamiento y mitigación de slippage intermercado en tiempo real.</div>
+  <!-- Operations Control Panoramic Banner (Monochrome Terminal Vector / Typography) -->
+  <div style="position:relative; border-radius:8px; overflow:hidden; border:1px solid var(--border); margin-bottom:18px; padding:20px 24px; background:#111215; display:flex; justify-content:space-between; align-items:center;">
+    <div>
+      <div style="font-size:10px; font-weight:700; text-transform:uppercase; color:var(--text-muted); letter-spacing:1.5px; margin-bottom:4px; font-family:'JetBrains Mono',monospace;">[TERMINAL // DESK-01] · EJECUCIÓN CUANTITATIVA</div>
+      <div style="font-size:18px; font-weight:800; color:#f4f4f5; margin-bottom:4px; letter-spacing:-0.3px;">Mesa de Arbitraje Estadístico & Despliegue HFT</div>
+      <div style="font-size:12px; color:var(--text-muted); max-width:680px;">Supervisión en vivo de microestructura de mercado, control automatizado de apalancamiento y mitigación de slippage intermercado en tiempo real.</div>
+    </div>
+    <div style="display:flex; gap:16px; align-items:center;">
+      <div style="text-align:right; font-family:'JetBrains Mono',monospace;">
+        <div style="font-size:10px; color:var(--text-muted);">LATENCIA NY4</div>
+        <div style="font-size:13px; font-weight:700; color:#10b981; font-feature-settings:'tnum' 1;">0.42 ms</div>
+      </div>
+      <div style="height:32px; width:1px; background:var(--border);"></div>
+      <div style="text-align:right; font-family:'JetBrains Mono',monospace;">
+        <div style="font-size:10px; color:var(--text-muted);">STATUS MOTOR</div>
+        <div style="font-size:13px; font-weight:700; color:#10b981;">NOMINAL 100%</div>
+      </div>
     </div>
   </div>
 

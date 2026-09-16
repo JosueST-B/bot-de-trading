@@ -88,9 +88,32 @@ class TestInstitutionalPortal(unittest.TestCase):
         res = conn.getresponse()
         self.assertEqual(res.status, 200)
         data = json.loads(res.read().decode("utf-8"))
-        self.assertEqual(data.get("status"), "success")
+        self.assertIn(data.get("status"), ("connected", "success"))
+        self.assertEqual(data.get("platform"), "binance")
+        self.assertTrue(data.get("encrypted"))
         self.assertIn("AES-256", data.get("message"))
         conn.close()
+
+    @patch("bot.telemetry.TelegramNotifier.send")
+    def test_post_connect_api_bybit_and_ibkr(self, mock_send):
+        mock_send.return_value = True
+        for plat in ["bybit", "ibkr"]:
+            conn = HTTPConnection("127.0.0.1", self.port)
+            payload = json.dumps({
+                "name": f"Investor {plat.upper()}",
+                "email": f"investor_{plat}@aethelgard.com",
+                "platform": plat,
+                "apiKey": f"key_{plat}_999",
+                "apiSecret": f"sec_{plat}_888",
+            })
+            conn.request("POST", "/api/investor/connect-api", body=payload, headers={"Content-Type": "application/json"})
+            res = conn.getresponse()
+            self.assertEqual(res.status, 200)
+            data = json.loads(res.read().decode("utf-8"))
+            self.assertIn(data.get("status"), ("connected", "success"))
+            self.assertEqual(data.get("platform"), plat)
+            self.assertTrue(data.get("encrypted"))
+            conn.close()
 
     def test_get_investor_report_pdf(self):
         conn = HTTPConnection("127.0.0.1", self.port)
@@ -100,6 +123,30 @@ class TestInstitutionalPortal(unittest.TestCase):
         self.assertEqual(res.getheader("Content-Type"), "application/pdf")
         pdf_bytes = res.read()
         self.assertTrue(pdf_bytes.startswith(b"%PDF"))
+        conn.close()
+
+    def test_get_investor_report_csv(self):
+        conn = HTTPConnection("127.0.0.1", self.port)
+        conn.request("GET", "/api/investor/report-csv")
+        res = conn.getresponse()
+        self.assertEqual(res.status, 200)
+        self.assertTrue(res.getheader("Content-Type", "").startswith("text/csv"))
+        csv_text = res.read().decode("utf-8")
+        self.assertIn("ID,Timestamp,Asset,Market,Side", csv_text)
+        self.assertIn("SOL/USDT", csv_text)
+        conn.close()
+
+    def test_get_investor_report_json(self):
+        conn = HTTPConnection("127.0.0.1", self.port)
+        conn.request("GET", "/api/investor/report-json")
+        res = conn.getresponse()
+        self.assertEqual(res.status, 200)
+        self.assertTrue(res.getheader("Content-Type", "").startswith("application/json"))
+        data = json.loads(res.read().decode("utf-8"))
+        self.assertIn("syndicate", data)
+        self.assertIn("telemetry", data)
+        self.assertIn("audited_ledger", data)
+        self.assertEqual(data["telemetry"]["sharpe_ratio"], 2.42)
         conn.close()
 
     def test_backward_compatibility_dashboard_api(self):
@@ -139,14 +186,33 @@ class TestInstitutionalPortal(unittest.TestCase):
             "email": "alejandro@dupontcapital.com",
             "amount": 1500.0,
             "network": "TRC20",
-            "address": "TYDzsYocNCWiSCxZ5B29Y5c26q9wR18W3X"
+            "address": "TYDzsYocNCWiSCxZ5B29Y5c26q9wR18W3X",
+            "code2fa": "842915",
         })
         conn.request("POST", "/api/investor/withdraw", body=payload, headers={"Content-Type": "application/json"})
         res = conn.getresponse()
         self.assertEqual(res.status, 200)
         data = json.loads(res.read().decode("utf-8"))
-        self.assertEqual(data.get("status"), "success")
+        self.assertIn(data.get("status"), ("ticket_created", "success"))
         self.assertIn("ticket_id", data)
+        self.assertEqual(data.get("sla"), "< 24h")
+        conn.close()
+
+    def test_post_investor_withdrawal_invalid_totp(self):
+        conn = HTTPConnection("127.0.0.1", self.port)
+        payload = json.dumps({
+            "email": "alejandro@dupontcapital.com",
+            "amount": 1500.0,
+            "network": "TRC20",
+            "address": "TYDzsYocNCWiSCxZ5B29Y5c26q9wR18W3X",
+            "code2fa": "bad_totp",
+        })
+        conn.request("POST", "/api/investor/withdraw", body=payload, headers={"Content-Type": "application/json"})
+        res = conn.getresponse()
+        self.assertEqual(res.status, 400)
+        data = json.loads(res.read().decode("utf-8"))
+        self.assertEqual(data.get("status"), "error")
+        self.assertIn("TOTP", data.get("message", ""))
         conn.close()
 
 
