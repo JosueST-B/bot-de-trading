@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import atexit
 import json
 import logging
+import sqlite3
+import weakref
 from dataclasses import asdict, is_dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -11,7 +14,45 @@ import requests
 from sqlalchemy import text
 
 from bot.config import BotConfig
-from bot.db import create_db_engine
+from bot.db import create_db_engine, get_engine
+
+
+_ACTIVE_SQLITE_CONNS: weakref.WeakSet[sqlite3.Connection] = weakref.WeakSet()
+_orig_sqlite_connect = sqlite3.connect
+
+
+def _safe_sqlite_connect(*args: Any, **kwargs: Any) -> sqlite3.Connection:
+    conn = _orig_sqlite_connect(*args, **kwargs)
+    try:
+        _ACTIVE_SQLITE_CONNS.add(conn)
+    except Exception:
+        pass
+    return conn
+
+
+sqlite3.connect = _safe_sqlite_connect
+
+
+def _cleanup_db_resources() -> None:
+    for conn in list(_ACTIVE_SQLITE_CONNS):
+        try:
+            conn.close()
+        except Exception:
+            pass
+    _ACTIVE_SQLITE_CONNS.clear()
+    try:
+        from bot.db import _ENGINES
+        for eng in list(_ENGINES.values()):
+            try:
+                eng.dispose()
+            except Exception:
+                pass
+        _ENGINES.clear()
+    except Exception:
+        pass
+
+
+atexit.register(_cleanup_db_resources)
 
 
 def setup_logging(cfg: BotConfig) -> None:
@@ -43,9 +84,22 @@ def _json_default(value: Any) -> str:
 class EventStore:
     def __init__(self, db_path: str) -> None:
         self.db_path = Path(db_path)
-        self.engine = create_db_engine(db_path)
+        self.engine = get_engine(db_path)
         self.is_sqlite = self.engine.dialect.name == "sqlite"
         self._init_db()
+
+    def close(self) -> None:
+        if hasattr(self, "engine") and self.engine is not None:
+            try:
+                self.engine.dispose()
+            except Exception:
+                pass
+
+    def __enter__(self) -> EventStore:
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        self.close()
 
     def _init_db(self) -> None:
         with self.engine.begin() as conn:
@@ -150,57 +204,87 @@ class EventStore:
         cutoff = now - timedelta(seconds=max(1, ttl_seconds))
         owner_payload = json.dumps({"owner": owner}, ensure_ascii=False)
         with self.engine.begin() as conn:
+            current = conn.execute(
+                text("SELECT updated_ts, value_json FROM bot_state WHERE key = :key"),
+                {"key": key},
+            ).fetchone()
+            if current is None:
+                conn.execute(
+                    text("INSERT INTO bot_state (key, updated_ts, value_json) VALUES (:key, :updated_ts, :value_json)"),
+                    {"key": key, "updated_ts": now.isoformat(), "value_json": owner_payload},
+                )
+                return True
+
+            curr_ts_str, curr_val_str = current
+            try:
+                curr_dt = datetime.fromisoformat(curr_ts_str)
+                if curr_dt.tzinfo is None:
+                    curr_dt = curr_dt.replace(tzinfo=timezone.utc)
+            except Exception:
+                curr_dt = datetime.min.replace(tzinfo=timezone.utc)
+
+            curr_owner = None
+            try:
+                curr_val = json.loads(curr_val_str)
+                if isinstance(curr_val, dict):
+                    curr_owner = curr_val.get("owner")
+            except Exception:
+                pass
+
+            is_expired = curr_dt < cutoff
+            is_same_owner = (curr_owner == owner)
+
+            if is_expired or is_same_owner:
+                conn.execute(
+                    text("UPDATE bot_state SET updated_ts = :updated_ts, value_json = :value_json WHERE key = :key"),
+                    {"key": key, "updated_ts": now.isoformat(), "value_json": owner_payload},
+                )
+                return True
+            return False
+
+    def refresh_lease(self, key: str, owner: str) -> bool:
+        now = datetime.now(timezone.utc)
+        owner_payload = json.dumps({"owner": owner}, ensure_ascii=False)
+        with self.engine.begin() as conn:
+            current = conn.execute(
+                text("SELECT updated_ts, value_json FROM bot_state WHERE key = :key"),
+                {"key": key},
+            ).fetchone()
+            if current is None:
+                return False
+            _, curr_val_str = current
+            curr_owner = None
+            try:
+                curr_val = json.loads(curr_val_str)
+                if isinstance(curr_val, dict):
+                    curr_owner = curr_val.get("owner")
+            except Exception:
+                pass
+            if curr_owner != owner:
+                return False
             conn.execute(
-                text(
-                    """
-                    INSERT INTO bot_state (key, updated_ts, value_json)
-                    VALUES (:key, :updated_ts, :value_json)
-                    ON CONFLICT(key) DO UPDATE SET
-                        updated_ts = EXCLUDED.updated_ts,
-                        value_json = EXCLUDED.value_json
-                    WHERE bot_state.updated_ts < :cutoff
-                       OR bot_state.value_json = :value_json
-                    """
-                ),
-                {
-                    "key": key,
-                    "updated_ts": now.isoformat(),
-                    "value_json": owner_payload,
-                    "cutoff": cutoff.isoformat(),
-                },
+                text("UPDATE bot_state SET updated_ts = :updated_ts, value_json = :value_json WHERE key = :key"),
+                {"key": key, "updated_ts": now.isoformat(), "value_json": owner_payload},
             )
+            return True
+
+    def release_lease(self, key: str, owner: str) -> None:
+        with self.engine.begin() as conn:
             current = conn.execute(
                 text("SELECT value_json FROM bot_state WHERE key = :key"),
                 {"key": key},
             ).fetchone()
-        return current is not None and current[0] == owner_payload
-
-    def refresh_lease(self, key: str, owner: str) -> bool:
-        owner_payload = json.dumps({"owner": owner}, ensure_ascii=False)
-        with self.engine.begin() as conn:
-            result = conn.execute(
-                text(
-                    """
-                    UPDATE bot_state
-                    SET updated_ts = :updated_ts
-                    WHERE key = :key AND value_json = :value_json
-                    """
-                ),
-                {
-                    "key": key,
-                    "updated_ts": datetime.now(timezone.utc).isoformat(),
-                    "value_json": owner_payload,
-                },
-            )
-        return bool(result.rowcount)
-
-    def release_lease(self, key: str, owner: str) -> None:
-        owner_payload = json.dumps({"owner": owner}, ensure_ascii=False)
-        with self.engine.begin() as conn:
-            conn.execute(
-                text("DELETE FROM bot_state WHERE key = :key AND value_json = :value_json"),
-                {"key": key, "value_json": owner_payload},
-            )
+            if current is None:
+                return
+            curr_owner = None
+            try:
+                curr_val = json.loads(current[0])
+                if isinstance(curr_val, dict):
+                    curr_owner = curr_val.get("owner")
+            except Exception:
+                pass
+            if curr_owner == owner:
+                conn.execute(text("DELETE FROM bot_state WHERE key = :key"), {"key": key})
 
     def states(self) -> list[dict[str, Any]]:
         with self.engine.connect() as conn:
@@ -421,6 +505,13 @@ class TelegramNotifier:
         response.raise_for_status()
         return True
 
+    def close(self) -> None:
+        if hasattr(self, "session") and self.session is not None:
+            try:
+                self.session.close()
+            except Exception:
+                pass
+
 
 class DailyReporter:
     def __init__(self, store: EventStore) -> None:
@@ -580,6 +671,24 @@ class Telemetry:
                 logging.info("Telegram alert sent.")
         except Exception as exc:
             logging.warning("Telegram alert failed: %s", exc)
+
+    def close(self) -> None:
+        if hasattr(self, "store") and self.store is not None:
+            try:
+                self.store.close()
+            except Exception:
+                pass
+        if hasattr(self, "notifier") and hasattr(self.notifier, "close"):
+            try:
+                self.notifier.close()
+            except Exception:
+                pass
+
+    def __enter__(self) -> Telemetry:
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        self.close()
 
 
 def build_telemetry(cfg: BotConfig) -> Telemetry:

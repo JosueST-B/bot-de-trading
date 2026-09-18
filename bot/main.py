@@ -3,11 +3,13 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import logging
 import os
+import signal
 import socket
 import subprocess
+import threading
 import time
-import logging
 import uuid
 from dataclasses import asdict, replace
 from datetime import date, datetime, timedelta, timezone
@@ -25,12 +27,12 @@ from bot.models import Position, Trade
 from bot.optimizer import optimize_config
 from bot.paper import run_paper
 from bot.regime import classify_market
-from bot.risk import RiskManager
+from bot.risk import RiskManager, CircuitBreakerStatus
 from bot.strategy import HybridStrategy
 from bot.telemetry import build_paper_report, build_telemetry
 from bot.watchdog import run_watchdog
 from bot.walkforward import run_fixed_walkforward, run_walkforward
-from bot.db import DBPosition, DBTrade, DBBotState, get_db_session
+from bot.db import DBPosition, DBTrade, DBBotState, get_db_session, OrderState, generate_client_order_id
 from bot.earn_manager import EarnManager, build_earn_manager
 from bot.news_sentiment import NewsSentimentAnalyzer
 
@@ -42,6 +44,23 @@ def _to_float(value: Any, fallback: float) -> float:
         return float(value)
     except (TypeError, ValueError):
         return fallback
+
+
+def calculate_vwap_fills(fills: list[dict[str, Any]] | None, fallback_price: float) -> float:
+    """Computes exact Volume-Weighted Average Price across all fill slices."""
+    if not fills:
+        return fallback_price
+    total_qty = 0.0
+    total_quote = 0.0
+    for f in fills:
+        q = _to_float(f.get("qty"), 0.0)
+        p = _to_float(f.get("price"), 0.0)
+        total_qty += q
+        total_quote += (q * p)
+    if total_qty <= 0:
+        return fallback_price
+    return total_quote / total_qty
+
 
 
 class LiveTrader:
@@ -73,6 +92,24 @@ class LiveTrader:
         self.trades: list[Trade] = []
         self.last_processed_close_time: datetime | None = None
         self.load_state()
+
+    def close(self) -> None:
+        if hasattr(self, "db_session") and self.db_session is not None:
+            try:
+                self.db_session.close()
+            except Exception:
+                pass
+        if hasattr(self, "data") and hasattr(self.data, "session"):
+            try:
+                self.data.session.close()
+            except Exception:
+                pass
+
+    def __enter__(self) -> LiveTrader:
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        self.close()
 
     @staticmethod
     def _parse_dt(value: str | None) -> datetime | None:
@@ -172,18 +209,20 @@ class LiveTrader:
                 self.risk.state.daily_trade_count = int(risk_state.get("daily_trade_count", 0))
                 self.risk.state.last_entry_time = self._parse_dt(risk_state.get("last_entry_time"))
                 self.risk.state.last_exit_time = self._parse_dt(risk_state.get("last_exit_time"))
+                cb_val = risk_state.get("circuit_breaker_status")
+                if cb_val:
+                    try:
+                        self.risk.state.circuit_breaker_status = CircuitBreakerStatus(cb_val)
+                    except Exception:
+                        pass
+                self.risk.state.circuit_breaker_paused = bool(risk_state.get("circuit_breaker_paused", False))
         except Exception as e:
             logging.error(f"Error al cargar estado de riesgo desde DB: {e}")
 
-        # Cargar y reconciliar posición activa
+        # Cargar y reconciliar posición activa / órdenes pendientes / huérfanas
         self.position = None
         try:
-            db_pos = self.db_session.query(DBPosition).filter(
-                DBPosition.symbol == self.cfg.symbol,
-                DBPosition.is_active == True
-            ).first()
-            if db_pos:
-                self.position = self.reconcile_position_with_binance(db_pos)
+            self.reconcile_startup_state()
         except Exception as e:
             logging.error(f"Error al cargar/reconciliar posición desde DB: {e}")
 
@@ -245,6 +284,168 @@ class LiveTrader:
             
         return self.cfg.interval
 
+    def _get_approx_price(self) -> float:
+        try:
+            res = self.data.get_klines(self.cfg.symbol, self.cfg.interval, limit=1)
+            if res is not None and not res.empty:
+                return float(res["close"].iloc[-1])
+        except Exception:
+            pass
+        return 1.0
+
+    def reconcile_startup_state(self) -> None:
+        """
+        Reconciliador atómico de estado al reiniciar:
+        1. Sincroniza órdenes pendientes (PENDING_SUBMIT) con Binance por client_order_id.
+           - Si la orden se ejecutó en Binance, se transiciona a FILLED.
+           - Si fue cancelada, expirada o rechazada (o no existe), se purga el registro fantasma.
+        2. Consulta balances reales y órdenes abiertas en Binance.
+        3. Si existe una posición activa en DB:
+           - Verifica que el SL protector siga abierto en Binance; si falta, lo re-adjunta.
+           - Si la posición fue cerrada en Binance, detecta el precio real de salida y la cierra.
+        4. Si no existe registro en DB pero Binance tiene balance positivo (posición huérfana tras crash):
+           - Adopta la posición, reconstruye precio de entrada y adjunta orden Stop Loss de inmediato.
+        """
+        logging.info(f"[{self.cfg.symbol}] Iniciando reconciliación atómica de estado en arranque...")
+
+        # 1. Reconciliar órdenes PENDING_SUBMIT
+        try:
+            pending_positions = self.db_session.query(DBPosition).filter(
+                DBPosition.symbol == self.cfg.symbol,
+                DBPosition.is_active == True,
+                DBPosition.state == OrderState.PENDING_SUBMIT.value
+            ).all()
+
+            for pos in pending_positions:
+                cid = pos.client_order_id
+                if not cid:
+                    continue
+                try:
+                    ex_order = self.exec.get_order_status(self.cfg.symbol, origClientOrderId=cid)
+                    st = ex_order.get("status")
+                    if st in ("FILLED", "PARTIALLY_FILLED"):
+                        pos.state = OrderState.FILLED.value
+                        exec_qty = _to_float(ex_order.get("executedQty"), pos.quantity)
+                        if exec_qty > 0:
+                            pos.quantity = exec_qty
+                            c_quote = _to_float(ex_order.get("cummulativeQuoteQty"), 0.0)
+                            if c_quote > 0:
+                                pos.entry_price = c_quote / exec_qty
+                        self.db_session.commit()
+                        logging.info(f"Orden pendiente {cid} confirmada como FILLED en Binance.")
+                    elif st in ("CANCELED", "REJECTED", "EXPIRED"):
+                        pos.state = OrderState.CANCELLED.value
+                        pos.is_active = False
+                        self.db_session.commit()
+                        logging.info(f"Purgada orden pendiente {cid} ({st}) en Binance.")
+                except Exception as ex_err:
+                    err_text = str(ex_err).lower()
+                    if "-2013" in err_text or "not exist" in err_text:
+                        pos.state = OrderState.CANCELLED.value
+                        pos.is_active = False
+                        self.db_session.commit()
+                        logging.info(f"Purgado registro fantasma {cid} no encontrado en Binance.")
+                    else:
+                        logging.warning(f"No se pudo consultar orden pendiente {cid}: {ex_err}")
+        except Exception as e:
+            logging.error(f"Error al reconciliar órdenes pendientes: {e}")
+
+        # 2. Consultar balances reales en Binance
+        quote_free, quote_locked, base_free, base_locked = self._balances()
+        total_base = base_free + base_locked
+        filters = self.symbol_filters
+
+        # 3. Reconciliar posición activa en DB si existe
+        db_pos = self.db_session.query(DBPosition).filter(
+            DBPosition.symbol == self.cfg.symbol,
+            DBPosition.is_active == True
+        ).first()
+
+        if db_pos:
+            self.position = self.reconcile_position_with_binance(db_pos)
+            return
+
+        # 4. Detección y adopción de posición huérfana en Binance
+        approx_price = self._get_approx_price()
+        if total_base > 0 and self.exec.quantity_is_valid(total_base, filters) and (total_base * approx_price) >= filters.min_notional:
+            logging.warning(
+                f"[{self.cfg.symbol}] POSICIÓN HUÉRFANA DETECTADA en arranque. "
+                f"Base={total_base}, valor aprox={total_base * approx_price:.2f}. Protegiendo..."
+            )
+            entry_price = approx_price
+            entry_time = datetime.utcnow()
+            try:
+                my_trades = self.exec._call_signed(self.exec.client.get_my_trades, symbol=self.cfg.symbol, limit=10)
+                if my_trades:
+                    buy_trades = [t for t in my_trades if t.get("isBuyer")]
+                    if buy_trades:
+                        last_buy = buy_trades[-1]
+                        entry_price = _to_float(last_buy.get("price"), entry_price)
+                        entry_time = datetime.fromtimestamp(last_buy.get("time") / 1000, tz=timezone.utc).replace(tzinfo=None)
+            except Exception as trade_err:
+                logging.warning(f"No se pudo consultar historial de trades para posición huérfana: {trade_err}")
+
+            stop_loss_pct = getattr(self.cfg, "stop_loss", getattr(self.cfg, "sl_pct", 0.02))
+            take_profit_pct = getattr(self.cfg, "take_profit", getattr(self.cfg, "tp_pct", 0.04))
+            stop_price = entry_price * (1 - stop_loss_pct)
+            take_profit_price = entry_price * (1 + take_profit_pct)
+
+            open_orders = []
+            try:
+                open_orders = self.exec.get_open_orders(self.cfg.symbol)
+            except Exception as oerr:
+                logging.warning(f"Error al consultar órdenes abiertas para posición huérfana: {oerr}")
+
+            sl_order_id = None
+            for o in open_orders:
+                if o.get("type") in ("STOP_LOSS_LIMIT", "STOP_LOSS"):
+                    sl_order_id = str(o.get("orderId"))
+                    stop_price = _to_float(o.get("stopPrice") or o.get("price"), stop_price)
+                    break
+
+            if not sl_order_id and base_free > 0 and self.exec.quantity_is_valid(base_free, filters):
+                try:
+                    sl_cid = generate_client_order_id(self.cfg.symbol, "OSL", int(time.time() * 1000))
+                    limit_sl_price = stop_price * (1 - self.cfg.slippage)
+                    new_sl = self.exec.create_stop_loss_limit(
+                        self.cfg.symbol,
+                        min(total_base, base_free),
+                        stop_price,
+                        limit_sl_price,
+                        filters,
+                        newClientOrderId=sl_cid
+                    )
+                    sl_order_id = str(new_sl.get("orderId"))
+                    logging.info(f"SL protector colocado para posición huérfana. ID: {sl_order_id}")
+                except Exception as sl_err:
+                    logging.error(f"Fallo al colocar SL de emergencia para posición huérfana: {sl_err}")
+
+            orphan_state = OrderState.FILLED.value if sl_order_id else OrderState.UNHEDGED_CRITICAL.value
+            db_pos = DBPosition(
+                symbol=self.cfg.symbol,
+                entry_time=entry_time,
+                entry_price=entry_price,
+                quantity=total_base,
+                stop_price=stop_price,
+                take_profit_price=take_profit_price,
+                stop_loss_order_id=sl_order_id,
+                take_profit_order_id=None,
+                is_active=True,
+                state=orphan_state,
+                entry_reason="reconciled_orphan_startup"
+            )
+            self.db_session.add(db_pos)
+            self.db_session.commit()
+
+            self.position = Position(
+                entry_time=entry_time.replace(tzinfo=timezone.utc) if entry_time.tzinfo is None else entry_time,
+                entry_price=entry_price,
+                quantity=total_base,
+                stop_price=stop_price,
+                take_profit_price=take_profit_price,
+                entry_reason="reconciled_orphan_startup"
+            )
+
     def reconcile_position_with_binance(self, db_pos: DBPosition) -> Position | None:
         """
         Sincroniza y reconcilia la posición activa local con Binance API.
@@ -258,7 +459,18 @@ class LiveTrader:
 
             if not self.exec.quantity_is_valid(total_base, filters) or (total_base * db_pos.entry_price) < filters.min_notional:
                 logging.warning("No hay suficiente balance de la moneda base en Binance. La posición fue cerrada externamente.")
-                self._close_db_position_as_lost(db_pos, "external_close_no_balance")
+                actual_exit_price = db_pos.stop_price
+                actual_exit_time = datetime.utcnow()
+                try:
+                    my_trades = self.exec._call_signed(self.exec.client.get_my_trades, symbol=self.cfg.symbol, limit=5)
+                    if my_trades:
+                        last_trade = my_trades[-1]
+                        if not last_trade.get("isBuyer"):
+                            actual_exit_price = _to_float(last_trade.get("price"), db_pos.stop_price)
+                            actual_exit_time = datetime.fromtimestamp(last_trade.get("time") / 1000, tz=timezone.utc).replace(tzinfo=None)
+                except Exception:
+                    pass
+                self._close_db_position(db_pos, actual_exit_price, actual_exit_time, "external_close_no_balance")
                 return None
 
             sl_filled = False
@@ -307,6 +519,38 @@ class LiveTrader:
                 self._close_db_position(db_pos, exit_price, exit_time, close_reason)
                 return None
 
+            # Si la posición sigue abierta, verificar si el SL está activo en Binance
+            open_orders = []
+            try:
+                open_orders = self.exec.get_open_orders(self.cfg.symbol)
+            except Exception as e:
+                logging.warning(f"Error al consultar órdenes abiertas en Binance: {e}")
+
+            open_order_ids = {str(o.get("orderId")) for o in open_orders}
+            sl_is_open = db_pos.stop_loss_order_id and (str(db_pos.stop_loss_order_id) in open_order_ids)
+
+            if not sl_is_open and base_free > 0 and self.exec.quantity_is_valid(base_free, filters):
+                logging.warning(f"[{self.cfg.symbol}] Posición activa sin SL en Binance. Adjuntando SL protector...")
+                try:
+                    sl_cid = generate_client_order_id(self.cfg.symbol, "RSL", int(time.time() * 1000))
+                    limit_sl_price = db_pos.stop_price * (1 - self.cfg.slippage)
+                    new_sl = self.exec.create_stop_loss_limit(
+                        self.cfg.symbol,
+                        min(db_pos.quantity, base_free),
+                        db_pos.stop_price,
+                        limit_sl_price,
+                        filters,
+                        newClientOrderId=sl_cid
+                    )
+                    db_pos.stop_loss_order_id = str(new_sl.get("orderId"))
+                    db_pos.state = OrderState.FILLED.value
+                    self.db_session.commit()
+                    logging.info(f"SL protector re-adjuntado exitosamente. ID: {db_pos.stop_loss_order_id}")
+                except Exception as ex:
+                    logging.error(f"Fallo al adjuntar nuevo SL en reconciliación: {ex}")
+                    db_pos.state = OrderState.UNHEDGED_CRITICAL.value
+                    self.db_session.commit()
+
             logging.info("La posición sigue activa en Binance.")
             return Position(
                 entry_time=db_pos.entry_time.replace(tzinfo=timezone.utc) if db_pos.entry_time.tzinfo is None else db_pos.entry_time,
@@ -330,12 +574,14 @@ class LiveTrader:
 
     def _close_db_position(self, db_pos: DBPosition, exit_price: float, exit_time: datetime, reason: str):
         db_pos.is_active = False
+        db_pos.state = OrderState.FILLED.value
         gross = db_pos.quantity * exit_price
         exit_fee = gross * self.cfg.fee_rate
         entry_cost = db_pos.quantity * db_pos.entry_price
         entry_fee = entry_cost * self.cfg.fee_rate
         pnl = gross - entry_cost - entry_fee - exit_fee
         pnl_pct = pnl / entry_cost if entry_cost > 0 else 0.0
+
         
         db_trade = DBTrade(
             symbol=self.cfg.symbol,
@@ -378,6 +624,8 @@ class LiveTrader:
                 "daily_trade_count": self.risk.state.daily_trade_count,
                 "last_entry_time": self.risk.state.last_entry_time.isoformat() if self.risk.state.last_entry_time else None,
                 "last_exit_time": self.risk.state.last_exit_time.isoformat() if self.risk.state.last_exit_time else None,
+                "circuit_breaker_status": self.risk.state.circuit_breaker_status.value,
+                "circuit_breaker_paused": self.risk.state.circuit_breaker_paused,
             }
             
             state_record = self.db_session.query(DBBotState).filter(
@@ -403,8 +651,41 @@ class LiveTrader:
         return self.cash + ((self.position.quantity * mark) if self.position else 0.0)
 
     def _balances(self) -> tuple[float, float, float, float]:
-        quote_free, quote_locked = self.exec.get_asset_balance_values(self.quote_asset)
-        base_free, base_locked = self.exec.get_asset_balance_values(self.base_asset)
+        quote_free, quote_locked = 0.0, 0.0
+        base_free, base_locked = 0.0, 0.0
+        try:
+            val_q = self.exec.get_asset_balance_values(self.quote_asset)
+            if isinstance(val_q, (tuple, list)) and len(val_q) == 2:
+                quote_free = float(val_q[0])
+                quote_locked = float(val_q[1])
+        except Exception:
+            pass
+
+        try:
+            val_b = self.exec.get_asset_balance_values(self.base_asset)
+            if isinstance(val_b, (tuple, list)) and len(val_b) == 2:
+                base_free = float(val_b[0])
+                base_locked = float(val_b[1])
+        except Exception:
+            pass
+
+        # Fallback to get_account if get_asset_balance_values didn't yield balances or was mocked via get_account
+        if quote_free == 0.0 and quote_locked == 0.0 and base_free == 0.0 and base_locked == 0.0:
+            if hasattr(self.exec, "get_account"):
+                try:
+                    acct = self.exec.get_account()
+                    if isinstance(acct, dict) and "balances" in acct:
+                        for b in acct.get("balances", []):
+                            asset = b.get("asset")
+                            if asset == self.quote_asset:
+                                quote_free = float(b.get("free", 0.0))
+                                quote_locked = float(b.get("locked", 0.0))
+                            elif asset == self.base_asset:
+                                base_free = float(b.get("free", 0.0))
+                                base_locked = float(b.get("locked", 0.0))
+                except Exception:
+                    pass
+
         if quote_free > 0 or not self.cash:
             self.cash = quote_free
         return quote_free, quote_locked, base_free, base_locked
@@ -423,7 +704,7 @@ class LiveTrader:
             return 0.0, "min_notional_rejected"
         return qty, "ok"
 
-    def step(self) -> dict[str, Any]:
+    def step(self, order_book: dict[str, Any] | None = None) -> dict[str, Any]:
         # Sincronizar reloj en cada paso para evitar desvíos temporales (APIError -1021)
         try:
             self.exec.sync_clock()
@@ -493,7 +774,10 @@ class LiveTrader:
         try:
             from bot.vip_signal_bot import VIPSignalTracker
             tracker = VIPSignalTracker(self.cfg.event_db_path)
-            tracker.check_price(self.cfg.symbol, high=high, low=low, close=close)
+            try:
+                tracker.check_price(self.cfg.symbol, high=high, low=low, close=close)
+            finally:
+                tracker.close()
         except Exception as track_exc:
             logging.debug("Error al verificar tracker VIP: %s", track_exc)
 
@@ -627,10 +911,11 @@ class LiveTrader:
                             "position_qty": self.position.quantity,
                         }
 
-                    order = self.exec.create_market_sell(self.cfg.symbol, qty_to_sell)
+                    sell_cid = generate_client_order_id(self.cfg.symbol, "SELL", int(time.time() * 1000))
+                    order = self.exec.create_market_sell(self.cfg.symbol, qty_to_sell, newClientOrderId=sell_cid)
                     fills = order.get("fills", []) if isinstance(order, dict) else []
                     if fills:
-                        exit_price = _to_float(fills[0].get("price"), close)
+                        exit_price = calculate_vwap_fills(fills, close)
                     else:
                         quote_qty = _to_float(order.get("cummulativeQuoteQty"), 0.0)
                         exec_qty = _to_float(order.get("executedQty"), qty_to_sell)
@@ -728,6 +1013,53 @@ class LiveTrader:
         stop = entry_ref - (atr_value * self.cfg.stop_atr_mult)
         take = entry_ref + (entry_ref - stop) * self.cfg.take_profit_rr
 
+        # Salvaguarda de volatilidad extrema (rejection si ATR > 3x baseline)
+        vol_allowed, vol_ratio, vol_reason = self.risk.validate_volatility_regime(analysis_df)
+        if not vol_allowed:
+            self.last_processed_close_time = now
+            return {
+                "time": now.isoformat(),
+                "event": "risk_pause",
+                "reason": vol_reason,
+                "volatility_ratio": vol_ratio,
+            }
+
+        # Salvaguarda de circuit breaker global y cerrojo fiduciario (-6.4%)
+        cb_allowed, cb_reason = self.risk.check_global_circuit_breaker(self._equity(close))
+        if not cb_allowed:
+            self.last_processed_close_time = now
+            return {
+                "time": now.isoformat(),
+                "event": "risk_pause",
+                "reason": cb_reason,
+            }
+
+        # Salvaguarda de slippage pre-trade contra profundidad del libro de órdenes
+        current_ob = order_book
+        if current_ob is None:
+            try:
+                if hasattr(self.exec, "get_order_book"):
+                    current_ob = self.exec.get_order_book(self.cfg.symbol)
+                elif hasattr(self.exec, "client") and hasattr(self.exec.client, "get_order_book"):
+                    current_ob = self.exec.client.get_order_book(symbol=self.cfg.symbol, limit=20)
+                elif hasattr(self.data, "get_order_book"):
+                    current_ob = self.data.get_order_book(self.cfg.symbol)
+            except Exception as ob_err:
+                logging.debug("No se pudo obtener order book para pre-trade slippage: %s", ob_err)
+
+        if current_ob is not None:
+            slip_allowed, projected_slip, slip_reason = self.risk.validate_pre_trade_slippage(
+                current_ob, expected_price=entry_ref, max_slippage=self.cfg.slippage
+            )
+            if not slip_allowed:
+                self.last_processed_close_time = now
+                return {
+                    "time": now.isoformat(),
+                    "event": "slippage_guard_rejected",
+                    "reason": slip_reason,
+                    "projected_slippage": projected_slip,
+                }
+
         # Redimir de Simple Earn Flexible si falta liquidez para esta entrada
         if self.earn is not None and quote_free < self.cfg.live_max_quote_per_trade:
             try:
@@ -782,13 +1114,37 @@ class LiveTrader:
         except Exception as texc:
             logging.warning("Error al registrar señal VIP: %s", texc)
 
-        # Ejecutar compra a mercado
+        # Generar client order id determinista
+        client_order_id = generate_client_order_id(self.cfg.symbol, "BUY", int(time.time() * 1000))
+
+        # Fase 1: Registrar intención de compra en DB (Two-Phase Commit)
+        db_pos = DBPosition(
+            symbol=self.cfg.symbol,
+            entry_time=now,
+            entry_price=entry_ref,
+            quantity=qty,
+            stop_price=stop,
+            take_profit_price=take,
+            stop_loss_order_id=None,
+            take_profit_order_id=None,
+            client_order_id=client_order_id,
+            state=OrderState.PENDING_SUBMIT.value,
+            is_active=True,
+            entry_reason=signal.reason
+        )
+        self.db_session.add(db_pos)
+        self.db_session.commit()
+
+        # Fase 2: Ejecutar compra a mercado en Binance pasando newClientOrderId
         try:
-            order = self.exec.create_market_buy(self.cfg.symbol, qty)
+            order = self.exec.create_market_buy(self.cfg.symbol, qty, newClientOrderId=client_order_id)
         except Exception as e:
             err_msg = str(e)
             if "-2015" in err_msg or "permissions" in err_msg or getattr(self.cfg, "signal_provider_mode", False):
                 logging.info(f"[{self.cfg.symbol}] Modo Proveedor de Señales: Señal VIP emitida a Telegram (API Key en modo lectura).")
+                db_pos.state = OrderState.CANCELLED.value
+                db_pos.is_active = False
+                self.db_session.commit()
                 self.last_processed_close_time = now
                 return {
                     "time": now.isoformat(),
@@ -802,10 +1158,38 @@ class LiveTrader:
                     "confidence": getattr(signal, "confidence", 0.85),
                     "news_sentiment": getattr(self, "news_sentiment_score", 0.0),
                 }
-            raise
+            is_timeout = (
+                "timeout" in err_msg.lower()
+                or "timed out" in err_msg.lower()
+                or "connection" in err_msg.lower()
+                or "reset" in err_msg.lower()
+            )
+            if is_timeout:
+                resolved_order = None
+                try:
+                    resolved_order = self.exec.get_order_status(self.cfg.symbol, origClientOrderId=client_order_id)
+                except Exception as status_err:
+                    logging.warning(f"No se pudo consultar estado de orden en Binance para {client_order_id}: {status_err}")
+
+                if resolved_order and resolved_order.get("status") in ("FILLED", "PARTIALLY_FILLED"):
+                    order = resolved_order
+                    logging.info(f"[{self.cfg.symbol}] Recuperada orden ejecutada {client_order_id} tras timeout")
+                else:
+                    db_pos.state = OrderState.PENDING_SUBMIT.value
+                    db_pos.error_details = f"Timeout during dispatch: {e}"
+                    db_pos.is_active = True
+                    self.db_session.commit()
+                    raise
+            else:
+                db_pos.state = OrderState.FAILED.value
+                db_pos.error_details = str(e)
+                db_pos.is_active = False
+                self.db_session.commit()
+                raise
+
         fills = order.get("fills", []) if isinstance(order, dict) else []
         if fills:
-            entry_price = _to_float(fills[0].get("price"), entry_ref)
+            entry_price = calculate_vwap_fills(fills, entry_ref)
         else:
             quote_qty = _to_float(order.get("cummulativeQuoteQty"), 0.0)
             exec_qty = _to_float(order.get("executedQty"), qty)
@@ -815,62 +1199,111 @@ class LiveTrader:
         if executed_qty <= 0:
             executed_qty = qty
 
-        # Calcular precios de SL y TP basados en el precio de entrada real
+        # Auditoría post-fill de slippage
+        audit_ok, actual_slip, audit_reason = self.risk.audit_post_fill_slippage(
+            executed_price=entry_price,
+            expected_price=entry_ref,
+            max_slippage=self.cfg.slippage,
+            multiplier=2.0,
+        )
+        if not audit_ok:
+            logging.warning(
+                f"[{self.cfg.symbol}] ALERTA POST-FILL SLIPPAGE: Desviación excesiva "
+                f"({actual_slip:.4%} vs {self.cfg.slippage:.4%}). {audit_reason}"
+            )
+            self.risk.trigger_slippage_pause(actual_slip, audit_reason)
+
+        # Actualizar datos de ejecución real en db_pos
+        db_pos.entry_price = entry_price
+        db_pos.quantity = executed_qty
+        db_pos.state = OrderState.FILLED.value
+
+        # Calcular precios de SL y TP basados en el precio de entrada real VWAP
         stop = entry_price - (atr_value * self.cfg.stop_atr_mult)
         take = entry_price + (entry_price - stop) * self.cfg.take_profit_rr
+        db_pos.stop_price = stop
+        db_pos.take_profit_price = take
+        self.db_session.commit()
 
         sl_order_id = None
         tp_order_id = None
+        sl_placed = False
 
-        # Colocar órdenes nativas de SL y TP en Binance
-        logging.info("Colocando órdenes de protección SL/TP nativas en Binance...")
-        try:
-            limit_sl_price = stop * (1 - self.cfg.slippage)
-            sl_order = self.exec.create_stop_loss_limit(
-                self.cfg.symbol,
-                executed_qty,
-                stop,
-                limit_sl_price,
-                self.symbol_filters
-            )
-            sl_order_id = str(sl_order.get("orderId"))
-            logging.info(f"Orden de Stop Loss colocada. ID: {sl_order_id}")
-        except Exception as e:
-            logging.error(f"FALLO CRÍTICO al colocar Stop Loss en Binance: {e}. Venta inmediata por seguridad.")
+        # Colocar órdenes nativas de SL en Binance con reintento (Anti-Orphan Pipeline)
+        logging.info("Colocando órdenes de protección SL nativas en Binance...")
+        for sl_attempt in range(2):
             try:
-                self.exec.create_market_sell(self.cfg.symbol, executed_qty)
-            except Exception as ex:
-                logging.error(f"Fallo al vender posición tras fallo de SL: {ex}")
-            self.last_processed_close_time = now
-            return {"time": now.isoformat(), "event": "live_error", "reason": f"failed_to_place_sl: {e}"}
+                sl_cid = generate_client_order_id(self.cfg.symbol, "STOP", int(time.time() * 1000))
+                limit_sl_price = stop * (1 - self.cfg.slippage)
+                sl_order = self.exec.create_stop_loss_limit(
+                    self.cfg.symbol,
+                    executed_qty,
+                    stop,
+                    limit_sl_price,
+                    self.symbol_filters,
+                    newClientOrderId=sl_cid
+                )
+                sl_order_id = str(sl_order.get("orderId"))
+                db_pos.stop_loss_order_id = sl_order_id
+                self.db_session.commit()
+                sl_placed = True
+                logging.info(f"Orden de Stop Loss colocada. ID: {sl_order_id}")
+                break
+            except Exception as e:
+                logging.warning(f"Intento {sl_attempt+1}/2 falló al colocar Stop Loss: {e}")
+                time.sleep(0.3)
 
+        if not sl_placed:
+            logging.error("FALLO CRÍTICO al colocar Stop Loss en Binance. Activando fallback anti-huérfano...")
+            sold = False
+            try:
+                fsell_cid = generate_client_order_id(self.cfg.symbol, "FSEL", int(time.time() * 1000))
+                sell_order = self.exec.create_market_sell(self.cfg.symbol, executed_qty, newClientOrderId=fsell_cid)
+                sell_fills = sell_order.get("fills", []) if isinstance(sell_order, dict) else []
+                sell_exit_price = calculate_vwap_fills(sell_fills, stop)
+                self._close_db_position(db_pos, sell_exit_price, datetime.utcnow(), "anti_orphan_emergency_sell")
+                self.position = None
+                sold = True
+                logging.info("Posición huérfana liquidada exitosamente por seguridad.")
+                self.last_processed_close_time = now
+                return {"time": now.isoformat(), "event": "anti_orphan_liquidated", "reason": "emergency_market_sell_executed"}
+            except Exception as ex:
+                logging.critical(f"Fallo al vender posición tras fallo de SL: {ex}")
+
+            if not sold:
+                db_pos.state = OrderState.UNHEDGED_CRITICAL.value
+                db_pos.error_details = "Stop Loss and fallback market sell failed"
+                db_pos.is_active = True
+                self.db_session.commit()
+                self.position = Position(
+                    entry_time=now,
+                    entry_price=entry_price,
+                    quantity=executed_qty,
+                    stop_price=stop,
+                    take_profit_price=take,
+                    entry_reason=signal.reason
+                )
+                self.last_processed_close_time = now
+                return {"time": now.isoformat(), "event": "live_error", "reason": "UNHEDGED_CRITICAL: sl_and_emergency_sell_failed"}
+
+        # Si el SL se colocó con éxito, intentar colocar Take Profit
         try:
+            tp_cid = generate_client_order_id(self.cfg.symbol, "TAKE", int(time.time() * 1000))
             tp_order = self.exec.create_take_profit_limit(
                 self.cfg.symbol,
                 executed_qty,
                 take,
                 take,
-                self.symbol_filters
+                self.symbol_filters,
+                newClientOrderId=tp_cid
             )
             tp_order_id = str(tp_order.get("orderId"))
+            db_pos.take_profit_order_id = tp_order_id
             logging.info(f"Orden de Take Profit colocada. ID: {tp_order_id}")
         except Exception as e:
             logging.warning(f"Error al colocar Take Profit en Binance: {e}. Se gestionará de forma manual si falla.")
 
-        # Guardar en base de datos local
-        db_pos = DBPosition(
-            symbol=self.cfg.symbol,
-            entry_time=now,
-            entry_price=entry_price,
-            quantity=executed_qty,
-            stop_price=stop,
-            take_profit_price=take,
-            stop_loss_order_id=sl_order_id,
-            take_profit_order_id=tp_order_id,
-            is_active=True,
-            entry_reason=signal.reason
-        )
-        self.db_session.add(db_pos)
+        db_pos.state = OrderState.FILLED.value
         self.db_session.commit()
 
         self.position = Position(
@@ -1031,25 +1464,26 @@ def perform_auto_tuning(
     # Comprobar cuándo se ejecutó el último tuning en la DB
     from bot.db import get_db_session, DBBotState
     session = get_db_session(cfg.event_db_path)
-    last_tune_record = session.query(DBBotState).filter(DBBotState.key == "last_auto_tune_time").first()
-    
-    should_tune = False
-    if not last_tune_record:
-        should_tune = True
-    else:
-        try:
-            last_tune_time = datetime.fromisoformat(json.loads(last_tune_record.value_json))
-            hours_passed = (now - last_tune_time).total_seconds() / 3600.0
-            if hours_passed >= cfg.auto_tune_interval_hours:
-                should_tune = True
-        except Exception:
+    try:
+        last_tune_record = session.query(DBBotState).filter(DBBotState.key == "last_auto_tune_time").first()
+        
+        should_tune = False
+        if not last_tune_record:
             should_tune = True
+        else:
+            try:
+                last_tune_time = datetime.fromisoformat(json.loads(last_tune_record.value_json))
+                hours_passed = (now - last_tune_time).total_seconds() / 3600.0
+                if hours_passed >= cfg.auto_tune_interval_hours:
+                    should_tune = True
+            except Exception:
+                should_tune = True
 
-    if not should_tune:
-        session.close()
-        return
-
-    logging.info("--- Iniciando ciclo programado de Auto-Tuning inteligente ---")
+        if not should_tune:
+            session.close()
+            return
+    except Exception as e:
+        logging.warning("Error comprobando fecha del último auto-tune: %s", e)
     data = BinanceDataClient()
     
     tuned_summary = []
@@ -1304,42 +1738,67 @@ def _publish_live_event_to_square(cfg: BotConfig, symbol: str, event: dict[str, 
 def run_live(cfg: BotConfig, confirm_live: str) -> None:
     _assert_live_ready(cfg, confirm_live)
     telemetry = build_telemetry(cfg)
-    perform_auto_tuning(cfg, telemetry)
-    
-    from dataclasses import replace
-    for symbol in cfg.symbols_to_trade:
-        try:
-            symbol_cfg = replace(cfg, symbol=symbol)
-            trader = LiveTrader(symbol_cfg, state_store=telemetry.store)
-            event = trader.step()
-            trader.save_state()
-            event_name = str(event.get("event", "live_event"))
-            telemetry.record("live", symbol, event_name, event)
-            if event_name in {"live_buy", "live_sell", "risk_pause", "live_guard"}:
-                category = "general"
-                if "buy" in event_name:
-                    category = "buys"
-                elif "sell" in event_name:
-                    category = "sells"
-                elif "error" in event_name or "pause" in event_name or "guard" in event_name:
-                    category = "errors"
-                telemetry.alert(_format_live_alert(symbol, event), category=category)
-                _publish_live_event_to_square(cfg, symbol, event)
-            print(f"[{symbol}] Step Result:", json.dumps(event, indent=2, default=str))
-        except Exception as e:
-            import traceback
-            logging.error(f"[{symbol}] Error en run_live: {e}")
-            err_event = {
-                "time": datetime.now(timezone.utc).isoformat(),
-                "event": "live_error",
-                "error_type": type(e).__name__,
-                "message": str(e),
-                "traceback": traceback.format_exc(),
-            }
-            telemetry.record("live", symbol, "live_error", err_event)
-            telemetry.alert(_format_live_alert(symbol, err_event), category="errors")
+    try:
+        perform_auto_tuning(cfg, telemetry)
+        
+        from dataclasses import replace
+        for symbol in cfg.symbols_to_trade:
+            trader = None
+            try:
+                symbol_cfg = replace(cfg, symbol=symbol)
+                trader = LiveTrader(symbol_cfg, state_store=telemetry.store)
+                event = trader.step()
+                trader.save_state()
+                event_name = str(event.get("event", "live_event"))
+                telemetry.record("live", symbol, event_name, event)
+                if event_name in {"live_buy", "live_sell", "risk_pause", "live_guard"}:
+                    category = "general"
+                    if "buy" in event_name:
+                        category = "buys"
+                    elif "sell" in event_name:
+                        category = "sells"
+                    elif "error" in event_name or "pause" in event_name or "guard" in event_name:
+                        category = "errors"
+                    try:
+                        telemetry.alert(_format_live_alert(symbol, event), category=category)
+                    except Exception as a_exc:
+                        logging.warning("[%s] Error enviando alerta de telemetría: %s", symbol, a_exc)
+                    try:
+                        _publish_live_event_to_square(cfg, symbol, event)
+                    except Exception as sq_exc:
+                        logging.debug("[%s] Error publicando a Square: %s", symbol, sq_exc)
+                print(f"[{symbol}] Step Result:", json.dumps(event, indent=2, default=str))
+            except Exception as e:
+                import traceback
+                logging.error(f"[{symbol}] Error en run_live: {e}")
+                err_event = {
+                    "time": datetime.now(timezone.utc).isoformat(),
+                    "event": "live_error",
+                    "error_type": type(e).__name__,
+                    "message": str(e),
+                    "traceback": traceback.format_exc(),
+                }
+                try:
+                    telemetry.record("live", symbol, "live_error", err_event)
+                except Exception:
+                    pass
+                try:
+                    telemetry.alert(_format_live_alert(symbol, err_event), category="errors")
+                except Exception:
+                    pass
+            finally:
+                if trader is not None:
+                    try:
+                        trader.close()
+                    except Exception:
+                        pass
 
-    _run_earn_sweep(cfg, telemetry)
+        _run_earn_sweep(cfg, telemetry)
+    finally:
+        try:
+            telemetry.close()
+        except Exception:
+            pass
 
 
 def _run_earn_sweep(cfg: BotConfig, telemetry, earn: EarnManager | None = None) -> None:
@@ -1372,10 +1831,41 @@ def run_live_loop(
     lease_owner = f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex}"
     lease_ttl = max(600, sleep_seconds * 3)
     if not telemetry.store.acquire_lease(lease_key, lease_owner, lease_ttl):
+        try:
+            telemetry.close()
+        except Exception:
+            pass
         raise RuntimeError(
             "Otra instancia live-loop posee el bloqueo distribuido. "
             "Detenla antes de iniciar una segunda instancia."
         )
+
+    # Configuración de captura elegante de señales (SIGINT/SIGTERM)
+    stop_event = threading.Event()
+
+    def _shutdown_signal_handler(signum: int, frame: Any) -> None:
+        sig_name = "SIGINT" if signum == signal.SIGINT else (
+            "SIGTERM" if hasattr(signal, "SIGTERM") and signum == signal.SIGTERM else str(signum)
+        )
+        logging.info("Señal de interrupción %s recibida. Iniciando parada ordenada (graceful teardown)...", sig_name)
+        stop_event.set()
+
+    old_sigint = None
+    old_sigterm = None
+    try:
+        old_sigint = signal.signal(signal.SIGINT, _shutdown_signal_handler)
+    except (ValueError, AttributeError):
+        pass
+
+    if hasattr(signal, "SIGTERM"):
+        try:
+            old_sigterm = signal.signal(signal.SIGTERM, _shutdown_signal_handler)
+        except (ValueError, AttributeError):
+            pass
+
+    traders: dict[str, LiveTrader] = {}
+    sales_bot = None
+    traffic_publisher = None
 
     try:
         # Ejecutar auto-tuning inicial si corresponde
@@ -1383,13 +1873,11 @@ def run_live_loop(
 
         # Inicializar traders para cada símbolo activo
         from dataclasses import replace
-        traders = {}
         for symbol in cfg.symbols_to_trade:
             symbol_cfg = replace(cfg, symbol=symbol)
             traders[symbol] = LiveTrader(symbol_cfg, state_store=telemetry.store)
 
         # Inicializar bot interactivo de ventas y comandos VIP en Telegram
-        sales_bot = None
         if cfg.telegram_enabled and cfg.telegram_bot_token:
             try:
                 from bot.vip_signal_bot import VIPSignalTracker, TelegramVIPSalesBot
@@ -1398,10 +1886,9 @@ def run_live_loop(
                 sales_bot.start_polling()
                 logging.info("Bot Comercial VIP de Telegram activo y respondiendo a comandos de clientes.")
             except Exception as sexc:
-                logging.warning(f"No se pudo iniciar bot interactivo de ventas VIP: {sexc}")
+                logging.warning("No se pudo iniciar bot interactivo de ventas VIP: %s", sexc)
 
         # Inicializar generador y publicador autónomo de tráfico y alto ROI
-        traffic_publisher = None
         if cfg.telegram_enabled:
             try:
                 from bot.growth_traffic_engine import AutoTrafficPublisher
@@ -1409,7 +1896,7 @@ def run_live_loop(
                 traffic_publisher.start_background_loop(interval_minutes=120)
                 logging.info("Motor Autónomo de Tráfico y Alto ROI activo (publicando cada 120m).")
             except Exception as texc:
-                logging.warning(f"No se pudo iniciar publicador de tráfico: {texc}")
+                logging.warning("No se pudo iniciar publicador de tráfico: %s", texc)
 
         # EarnManager compartido para el loop (reutiliza el cliente firmado)
         loop_earn: EarnManager | None = None
@@ -1419,19 +1906,33 @@ def run_live_loop(
 
         completed_cycles = 0
 
-        while True:
+        while not stop_event.is_set():
+            # Refresco de cerrojo distribuido sin robo de lock
             try:
                 if not telemetry.store.refresh_lease(lease_key, lease_owner):
                     if not telemetry.store.acquire_lease(lease_key, lease_owner, lease_ttl):
-                        telemetry.store.set_state(lease_key, {"owner": lease_owner})
-                        logging.info("Cerrojo distribuido auto-restablecido para la instancia activa.")
+                        logging.error(
+                            "Pérdida crítica de cerrojo distribuido para %s: otra instancia posee el lease activo. Abortando ciclo live-loop sin forzar robo de lock.",
+                            lease_owner,
+                        )
+                        break
             except Exception as lexc:
                 logging.warning("Advertencia al refrescar cerrojo distribuido: %s", lexc)
+
+            if stop_event.is_set():
+                break
 
             # Ejecutar auto-tuning periódico si corresponde
             perform_auto_tuning(cfg, telemetry, lease_key=lease_key, lease_owner=lease_owner)
 
+            if stop_event.is_set():
+                break
+
+            # Aislamiento por símbolo: cada activo tiene su frontera de error dedicada
             for symbol, trader in traders.items():
+                if stop_event.is_set():
+                    logging.info("Parada solicitada; interrumpiendo escaneo de símbolos.")
+                    break
                 try:
                     event = trader.step()
                     trader.save_state()
@@ -1445,8 +1946,14 @@ def run_live_loop(
                             category = "sells"
                         elif "error" in event_name or "pause" in event_name or "guard" in event_name:
                             category = "errors"
-                        telemetry.alert(_format_live_alert(symbol, event), category=category)
-                        _publish_live_event_to_square(cfg, symbol, event)
+                        try:
+                            telemetry.alert(_format_live_alert(symbol, event), category=category)
+                        except Exception as alert_exc:
+                            logging.warning("[%s] Error enviando alerta de telemetría: %s", symbol, alert_exc)
+                        try:
+                            _publish_live_event_to_square(cfg, symbol, event)
+                        except Exception as sq_exc:
+                            logging.debug("[%s] Error publicando en Binance Square: %s", symbol, sq_exc)
                     print(f"[{symbol}] Event:", json.dumps(event, indent=2, default=str))
                 except Exception as exc:
                     import traceback
@@ -1457,9 +1964,18 @@ def run_live_loop(
                         "message": str(exc),
                         "traceback": traceback.format_exc(),
                     }
-                    telemetry.record("live", symbol, "live_error", event)
-                    telemetry.alert(_format_live_alert(symbol, event), category="errors")
+                    try:
+                        telemetry.record("live", symbol, "live_error", event)
+                    except Exception:
+                        pass
+                    try:
+                        telemetry.alert(_format_live_alert(symbol, event), category="errors")
+                    except Exception:
+                        pass
                     print(f"[{symbol}] Error:", json.dumps(event, indent=2, default=str))
+
+            if stop_event.is_set():
+                break
 
             if loop_earn is not None:
                 _run_earn_sweep(cfg, telemetry, earn=loop_earn)
@@ -1468,16 +1984,51 @@ def run_live_loop(
             if cycles > 0 and completed_cycles >= cycles:
                 return
 
-            time.sleep(sleep_seconds)
+            # Espera sensible a señales: se interrumpe de inmediato si se activa stop_event
+            stop_event.wait(timeout=sleep_seconds)
     finally:
+        # Restaurar señales originales
+        if old_sigint is not None:
+            try:
+                signal.signal(signal.SIGINT, old_sigint)
+            except Exception:
+                pass
+        if old_sigterm is not None and hasattr(signal, "SIGTERM"):
+            try:
+                signal.signal(signal.SIGTERM, old_sigterm)
+            except Exception:
+                pass
+
         if sales_bot is not None:
-            sales_bot.stop()
+            try:
+                sales_bot.stop()
+            except Exception as s_err:
+                logging.warning("Error al detener bot de ventas VIP: %s", s_err)
         if traffic_publisher is not None:
-            traffic_publisher.stop()
+            try:
+                traffic_publisher.stop()
+            except Exception as t_err:
+                logging.warning("Error al detener publicador de tráfico: %s", t_err)
+
+        # Cerrar traders y sus sesiones de DB
+        for sym, trader in traders.items():
+            try:
+                trader.close()
+            except Exception as tr_err:
+                logging.debug("Error cerrando trader %s: %s", sym, tr_err)
+
+        # Liberar cerrojo distribuido (sin robar ni destruir leases de terceros)
         try:
             telemetry.store.release_lease(lease_key, lease_owner)
+            logging.info("Cerrojo distribuido liberado en parada ordenada (%s).", lease_key)
         except Exception as exc:
             logging.warning("No se pudo liberar el bloqueo distribuido: %s", exc)
+
+        # Cerrar telemetría
+        try:
+            telemetry.close()
+        except Exception as tel_err:
+            logging.debug("Error al cerrar telemetría: %s", tel_err)
 
 
 def _format_live_alert(symbol: str, event: dict[str, Any]) -> str:
@@ -2643,20 +3194,23 @@ def main() -> None:
         from bot.db import DBTrade, get_db_session
         
         session = get_db_session(cfg.event_db_path)
-        trades_orm = session.query(DBTrade).order_by(DBTrade.exit_time.desc()).all()
-        
-        trades_list = []
-        for t in trades_orm:
-            trades_list.append({
-                "entry_time": t.entry_time,
-                "exit_time": t.exit_time,
-                "symbol": t.symbol,
-                "quantity": t.quantity,
-                "entry_price": t.entry_price,
-                "exit_price": t.exit_price,
-                "pnl": t.pnl,
-                "pnl_pct": t.pnl_pct
-            })
+        try:
+            trades_orm = session.query(DBTrade).order_by(DBTrade.exit_time.desc()).all()
+            
+            trades_list = []
+            for t in trades_orm:
+                trades_list.append({
+                    "entry_time": t.entry_time,
+                    "exit_time": t.exit_time,
+                    "symbol": t.symbol,
+                    "quantity": t.quantity,
+                    "entry_price": t.entry_price,
+                    "exit_price": t.exit_price,
+                    "pnl": t.pnl,
+                    "pnl_pct": t.pnl_pct
+                })
+        finally:
+            session.close()
             
         if not trades_list:
             trades_list = [
@@ -2684,18 +3238,21 @@ def main() -> None:
 
     if args.mode == "paper":
         telemetry = build_telemetry(cfg)
-        with RuntimePidFile(Path.cwd() / "paper.pid"):
-            summary = run_paper(
-                cfg=cfg,
-                data_client=BinanceDataClient(),
-                cycles=args.cycles,
-                sleep_seconds=args.sleep_seconds,
-                event_callback=lambda event: _record_paper_event(
-                    telemetry, cfg.symbol, event
-                ),
-                state_store=telemetry.store,
-            )
-        telemetry.record("paper", cfg.symbol, "paper_summary", summary)
+        try:
+            with RuntimePidFile(Path.cwd() / "paper.pid"):
+                summary = run_paper(
+                    cfg=cfg,
+                    data_client=BinanceDataClient(),
+                    cycles=args.cycles,
+                    sleep_seconds=args.sleep_seconds,
+                    event_callback=lambda event: _record_paper_event(
+                        telemetry, cfg.symbol, event
+                    ),
+                    state_store=telemetry.store,
+                )
+            telemetry.record("paper", cfg.symbol, "paper_summary", summary)
+        finally:
+            telemetry.close()
         return
 
     if args.mode == "optimize":

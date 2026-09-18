@@ -6,9 +6,9 @@ venv/
 *.err
 *.out
 *.pid
-*.sqlite3
-*.db
-bot_events.sqlite3
+*.sqlite3*
+*.db*
+bot_events.sqlite3*
 global_trading_state.json
 earn_seen_announcements.json
 ibkr_test_output.txt

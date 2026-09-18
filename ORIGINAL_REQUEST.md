@@ -80,3 +80,42 @@ Garantizar paridad funcional total entre el servidor HTTP nativo en Python (`mai
 - [ ] Suite de pruebas unitarias pasando al 100% (`python -m unittest discover tests`).
 - [ ] Servidor institucional local en `http://127.0.0.1:8765` responde 200 OK.
 - [ ] Despliegue en GitHub Pages (`https://josuest-b.github.io/bot-de-trading/`) sincronizado y respondiendo 200 OK.
+
+## Follow-up — 2026-09-17T18:29:25Z
+
+Auditoría profunda, detección sistemática de errores y robustecimiento institucional del cerebro de trading cuantitativo en vivo (ejecución de órdenes, tolerancia a fallos de red, reconciliación atómica de estado y circuit breakers de preservación de capital).
+
+Working directory: C:\Users\USUARIO\bot de trading
+Integrity mode: development
+
+## Requirements
+
+### R1. Auditoría Forense y Detección de Cuellos de Botella en el Motor de Ejecución
+Auditar exhaustivamente el ciclo de vida del motor de trading en vivo (`bot/main.py`, `bot/live_loop.py`, `bot/order_execution.py`, `bot/binance_client.py`, `bot/portfolio_manager.py`) para detectar condiciones de carrera, bloqueos residuales, excepciones de red no controladas o posibles fugas de memoria durante el escaneo continuo de activos.
+
+### R2. Red Fiduciaria Tolerante a Fallos y Reconexión Automática
+Blindar los canales de comunicación de mercado y ejecución ante caídas súbitas de conexión, fallos de handshake SSL, errores HTTP 429/5xx o desconexiones de WebSocket, empleando reconexión exponencial con fluctuación aleatoria (*jitter*) y conmutación de espejos sin perder el estado del ciclo.
+
+### R3. Reconciliación Atómica de Estado y Protección contra Órdenes Huérfanas
+Asegurar que la colocación de órdenes, actualizaciones de estado, gestión de Stop-Loss / Take-Profit y contabilidad de posiciones en base de datos SQLite sean estrictamente atómicas e idempotentes, garantizando que reinicios abruptos del sistema o caídas de red no generen órdenes huérfanas, compras duplicadas o posiciones fantasma.
+
+### R4. Salvaguardas de Riesgo y Circuit Breakers Dinámicos
+Fortalecer los mecanismos automáticos de protección de capital, asegurando que desviaciones anómalas de precio (*slippage* excesivo), picos extremos de volatilidad o drawdowns que alcancen el cerrojo fiduciario congelen de inmediato nuevas operaciones de riesgo y activen el modo defensivo.
+
+## Acceptance Criteria
+
+### Resiliencia de Red y Manejo de Errores
+- [ ] La inyección de fallos simulados (caídas de red, reinicios de conexión TCP 10054, timeouts y códigos HTTP 500/502) es manejada limpiamente por el bucle de trading sin congelar el proceso ni interrumpir el bucle.
+- [ ] Las consultas de klines y libros de órdenes cambian fluidamente a puntos de conexión alternativos si el espejo principal no responde.
+
+### Idempotencia y Reconciliación de Órdenes
+- [ ] Solicitudes de ejecución duplicadas o fuera de orden no generan dobles compras ni inconsistencias en el balance disponible.
+- [ ] La interrupción abrupta del proceso durante una orden pendiente se reconcilia correctamente al reiniciar, identificando el estado real en el broker/exchange sin crear posiciones desprotegidas.
+
+### Circuit Breakers y Protección de Capital
+- [ ] La superación del límite de drawdown o condiciones de mercado extremas activa el bloqueo fiduciario y rechaza nuevas aperturas.
+- [ ] Las órdenes con deslizamiento (*slippage*) proyectado mayor al umbral de seguridad se descartan automáticamente.
+
+### Verificación Automatizada
+- [ ] La suite completa de pruebas unitarias, de integración y de estrés (117 pruebas actuales + nuevas pruebas de resiliencia y concurrencia) pasa con 100% de éxito (`python -m unittest discover tests`).
+

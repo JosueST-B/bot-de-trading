@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import logging
+from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
 
@@ -10,18 +11,32 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from bot.config import BotConfig
+from bot.network import (
+    FiduciaryRetryPolicy,
+    LRUCache,
+    MaxRetriesExceededError,
+    MirrorManager,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class BinanceDataClient:
     BASE_URL = "https://api.binance.com"
     BASE_URLS = [
         "https://api.binance.com",
-        "https://data-api.binance.vision",
         "https://api1.binance.com",
+        "https://api2.binance.com",
         "https://api3.binance.com",
+        "https://data-api.binance.vision",
     ]
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        use_testnet: bool = False,
+        mirror_manager: MirrorManager | None = None,
+        retry_policy: FiduciaryRetryPolicy | None = None,
+    ) -> None:
         self.session = requests.Session()
         self.session.trust_env = False
         self.session.proxies.clear()
@@ -40,7 +55,10 @@ class BinanceDataClient:
         adapter = HTTPAdapter(max_retries=retry)
         self.session.mount("https://", adapter)
         self.session.mount("http://", adapter)
-        self._cache: dict[tuple[str, str, int], pd.DataFrame] = {}
+
+        self.mirror_manager = mirror_manager or MirrorManager(mirrors=self.BASE_URLS, testnet=use_testnet)
+        self.retry_policy = retry_policy or FiduciaryRetryPolicy()
+        self._cache: LRUCache[tuple[str, str, int], pd.DataFrame] = LRUCache(maxsize=200)
 
     def get_klines(self, symbol: str, interval: str, limit: int = 500) -> pd.DataFrame:
         cache_key = (symbol.upper(), interval, limit)
@@ -71,9 +89,13 @@ class BinanceDataClient:
                 df = pd.concat(pages, ignore_index=True)
                 df = df.drop_duplicates(subset=["open_time"]).sort_values("open_time")
                 df = df.tail(limit).reset_index(drop=True)
-        except requests.exceptions.RequestException:
+        except (requests.exceptions.RequestException, RuntimeError, Exception) as exc:
             cached = self._cache.get(cache_key)
             if cached is not None and not cached.empty:
+                logger.warning(
+                    f"Fallo de red al obtener klines para {symbol}: {exc}. "
+                    f"Sirviendo {len(cached)} velas desde caché LRU de respaldo."
+                )
                 return cached.copy()
             raise
 
@@ -87,28 +109,47 @@ class BinanceDataClient:
         limit: int,
         end_time: int | None = None,
     ) -> pd.DataFrame:
-        params = {"symbol": symbol.upper(), "interval": interval, "limit": limit}
+        params: dict[str, Any] = {"symbol": symbol.upper(), "interval": interval, "limit": limit}
         if end_time is not None:
             params["endTime"] = end_time
 
-        import time
-        import logging
-
+        candidate_mirrors = self.mirror_manager.get_candidate_mirrors()
         response = None
-        last_err = None
-        for base in self.BASE_URLS:
+        last_err: Exception | None = None
+
+        for base in candidate_mirrors:
             url = f"{base}/api/v3/klines"
             try:
-                response = self.session.get(url, params=params, timeout=6)
-                if response.status_code == 200:
+                def _do_get():
+                    return self.session.get(url, params=params, timeout=6)
+
+                resp = self.retry_policy.execute(_do_get)
+                if hasattr(resp, "status_code") and resp.status_code == 200:
+                    response = resp
+                    self.mirror_manager.record_success(base)
                     break
-            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout, ConnectionResetError) as e:
+                elif hasattr(resp, "status_code"):
+                    last_err = RuntimeError(f"HTTP {resp.status_code} on {base}")
+                    self.mirror_manager.mark_degraded(base)
+            except Exception as e:
                 last_err = e
+                self.mirror_manager.mark_degraded(base)
+                if self.retry_policy.is_transport_reset(e):
+                    try:
+                        self.session = requests.Session()
+                        self.session.trust_env = False
+                        self.session.proxies.clear()
+                        self.session.headers.update({
+                            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                            "Accept": "application/json",
+                        })
+                    except Exception:
+                        pass
                 continue
 
         if response is None or response.status_code != 200:
             if last_err is not None:
-                logging.warning(f"Fallback klines falló en todos los endpoints para {symbol}: {last_err}")
+                logger.warning(f"Fallback klines falló en todos los endpoints para {symbol}: {last_err}")
             raise RuntimeError(f"No kline data returned by Binance for {symbol}.")
 
         raw = response.json()
@@ -167,6 +208,8 @@ class BinanceExecutionClient:
         "TRY",
         "BRL",
     )
+    mirror_manager: MirrorManager = field(init=False)
+    retry_policy: FiduciaryRetryPolicy = field(init=False)
 
     def __post_init__(self) -> None:
         try:
@@ -183,46 +226,134 @@ class BinanceExecutionClient:
             requests_params={'timeout': 20}
         )
         self.client.REQUEST_RECVWINDOW = 60000
+        self.mirror_manager = MirrorManager(testnet=self.cfg.use_testnet)
+        self.retry_policy = FiduciaryRetryPolicy()
+        self._apply_mirror(self.mirror_manager.get_active_mirror())
         self.sync_clock()
 
+    def _apply_mirror(self, mirror: str) -> None:
+        """Applies active mirror endpoint to underlying binance client."""
+        base = mirror.rstrip("/")
+        api_url = f"{base}/api"
+        if getattr(self.cfg, "use_testnet", False):
+            self.client.API_TESTNET_URL = api_url
+        else:
+            self.client.API_URL = api_url
+
     def sync_clock(self) -> None:
-        import logging
         try:
             import time
             res = self.client.get_server_time()
             server_time = res['serverTime']
             local_time = int(time.time() * 1000)
             self.client.timestamp_offset = server_time - local_time
-            logging.info(f"Reloj sincronizado con Binance. Offset: {self.client.timestamp_offset}ms.")
+            logger.info(f"Reloj sincronizado con Binance. Offset: {self.client.timestamp_offset}ms.")
         except Exception as e:
-            logging.warning(f"No se pudo sincronizar el offset del reloj con Binance: {e}")
+            logger.warning(f"No se pudo sincronizar el offset del reloj con Binance: {e}")
 
     def _call_signed(self, fn, *args, **kwargs) -> Any:
-        """Ejecuta una llamada API firmada con captura de error -1021 (recvWindow) y re-sincronización instantánea."""
-        import logging
+        """
+        Executes a signed API call wrapped with FiduciaryRetryPolicy, mirror failover,
+        and clock synchronization on -1021 recvWindow.
+        """
         import time
-        try:
-            return fn(*args, **kwargs)
-        except Exception as e:
-            err_msg = str(e)
-            if "-1021" in err_msg or "recvWindow" in err_msg:
-                logging.warning("Desfase de reloj detectado (-1021 / recvWindow). Re-sincronizando con Binance y reintentando...")
-                self.sync_clock()
-                time.sleep(0.2)
-                return fn(*args, **kwargs)
-            raise
+        last_exc: Exception | None = None
+        max_attempts = self.retry_policy.max_retries
 
-    def create_market_buy(self, symbol: str, quantity: float) -> dict[str, Any]:
-        return self._call_signed(
-            self.client.create_order,
-            symbol=symbol.upper(), side="BUY", type="MARKET", quantity=quantity
-        )
+        for attempt in range(max_attempts + 1):
+            try:
+                res = fn(*args, **kwargs)
+                if hasattr(res, "status_code") and res.status_code in self.retry_policy.retry_statuses:
+                    if attempt >= max_attempts:
+                        return res
+                    retry_after = self.retry_policy._extract_retry_after(res)
+                    delay = self.retry_policy.calculate_delay(attempt, retry_after)
+                    if res.status_code in (500, 502, 503, 504):
+                        active = self.mirror_manager.get_active_mirror()
+                        self.mirror_manager.mark_degraded(active)
+                        self._apply_mirror(self.mirror_manager.get_active_mirror())
+                    time.sleep(delay)
+                    continue
 
-    def create_market_sell(self, symbol: str, quantity: float) -> dict[str, Any]:
-        return self._call_signed(
-            self.client.create_order,
-            symbol=symbol.upper(), side="SELL", type="MARKET", quantity=quantity
-        )
+                active = self.mirror_manager.get_active_mirror()
+                self.mirror_manager.record_success(active)
+                return res
+
+            except Exception as e:
+                last_exc = e
+                err_msg = str(e)
+                if "-1021" in err_msg or "recvWindow" in err_msg:
+                    logger.warning("Desfase de reloj detectado (-1021 / recvWindow). Re-sincronizando con Binance y reintentando...")
+                    self.sync_clock()
+                    time.sleep(0.2)
+                    if attempt < max_attempts:
+                        continue
+
+                if not self.retry_policy.is_retryable_exception(e):
+                    raise
+
+                if attempt >= max_attempts:
+                    raise
+
+                active = self.mirror_manager.get_active_mirror()
+                self.mirror_manager.mark_degraded(active)
+                new_mirror = self.mirror_manager.get_active_mirror()
+                if new_mirror != active:
+                    logger.warning(f"Mirror failover: {active} -> {new_mirror}")
+                    self._apply_mirror(new_mirror)
+
+                if self.retry_policy.is_transport_reset(e):
+                    try:
+                        self.client.session = self.client._init_session()
+                    except Exception:
+                        pass
+
+                retry_after = self.retry_policy._extract_retry_after_from_exc(e)
+                delay = self.retry_policy.calculate_delay(attempt, retry_after)
+                logger.warning(
+                    f"Signed API call failed with {type(e).__name__}: {e}. "
+                    f"Retrying (attempt {attempt + 1}/{max_attempts}) in {delay:.2f}s..."
+                )
+                time.sleep(delay)
+
+        if last_exc is not None:
+            raise last_exc
+
+    def create_market_buy(
+        self,
+        symbol: str,
+        quantity: float,
+        newClientOrderId: str | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        client_id = newClientOrderId or kwargs.get("new_client_order_id")
+        params: dict[str, Any] = {
+            "symbol": symbol.upper(),
+            "side": "BUY",
+            "type": "MARKET",
+            "quantity": quantity,
+        }
+        if client_id:
+            params["newClientOrderId"] = client_id
+        return self._call_signed(self.client.create_order, **params)
+
+    def create_market_sell(
+        self,
+        symbol: str,
+        quantity: float,
+        newClientOrderId: str | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        client_id = newClientOrderId or kwargs.get("new_client_order_id")
+        params: dict[str, Any] = {
+            "symbol": symbol.upper(),
+            "side": "SELL",
+            "type": "MARKET",
+            "quantity": quantity,
+        }
+        if client_id:
+            params["newClientOrderId"] = client_id
+        return self._call_signed(self.client.create_order, **params)
 
     def normalize_price(self, price: float, filters: SymbolFilters) -> float:
         p = max(price, 0.0)
@@ -252,49 +383,89 @@ class BinanceExecutionClient:
             decimals = 0
         return f"{normalized:.{decimals}f}"
 
-    def create_stop_loss_limit(self, symbol: str, quantity: float, stop_price: float, limit_price: float, filters: SymbolFilters) -> dict[str, Any]:
+    def create_stop_loss_limit(
+        self,
+        symbol: str,
+        quantity: float,
+        stop_price: float,
+        limit_price: float,
+        filters: SymbolFilters,
+        newClientOrderId: str | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        client_id = newClientOrderId or kwargs.get("new_client_order_id")
         qty_str = self.format_quantity(quantity, filters)
         stop_str = self.format_price(stop_price, filters)
         limit_str = self.format_price(limit_price, filters)
-        return self._call_signed(
-            self.client.create_order,
-            symbol=symbol.upper(),
-            side="SELL",
-            type="STOP_LOSS_LIMIT",
-            timeInForce="GTC",
-            quantity=qty_str,
-            price=limit_str,
-            stopPrice=stop_str
-        )
+        params: dict[str, Any] = {
+            "symbol": symbol.upper(),
+            "side": "SELL",
+            "type": "STOP_LOSS_LIMIT",
+            "timeInForce": "GTC",
+            "quantity": qty_str,
+            "price": limit_str,
+            "stopPrice": stop_str,
+        }
+        if client_id:
+            params["newClientOrderId"] = client_id
+        return self._call_signed(self.client.create_order, **params)
 
-    def create_take_profit_limit(self, symbol: str, quantity: float, stop_price: float, limit_price: float, filters: SymbolFilters) -> dict[str, Any]:
+    def create_take_profit_limit(
+        self,
+        symbol: str,
+        quantity: float,
+        stop_price: float,
+        limit_price: float,
+        filters: SymbolFilters,
+        newClientOrderId: str | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        client_id = newClientOrderId or kwargs.get("new_client_order_id")
         qty_str = self.format_quantity(quantity, filters)
         stop_str = self.format_price(stop_price, filters)
         limit_str = self.format_price(limit_price, filters)
-        return self._call_signed(
-            self.client.create_order,
-            symbol=symbol.upper(),
-            side="SELL",
-            type="TAKE_PROFIT_LIMIT",
-            timeInForce="GTC",
-            quantity=qty_str,
-            price=limit_str,
-            stopPrice=stop_str
-        )
+        params: dict[str, Any] = {
+            "symbol": symbol.upper(),
+            "side": "SELL",
+            "type": "TAKE_PROFIT_LIMIT",
+            "timeInForce": "GTC",
+            "quantity": qty_str,
+            "price": limit_str,
+            "stopPrice": stop_str,
+        }
+        if client_id:
+            params["newClientOrderId"] = client_id
+        return self._call_signed(self.client.create_order, **params)
 
-    def cancel_order(self, symbol: str, order_id: str | int) -> dict[str, Any]:
-        return self._call_signed(
-            self.client.cancel_order,
-            symbol=symbol.upper(),
-            orderId=str(order_id)
-        )
+    def cancel_order(
+        self,
+        symbol: str,
+        order_id: str | int | None = None,
+        origClientOrderId: str | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        client_id = origClientOrderId or kwargs.get("orig_client_order_id")
+        params: dict[str, Any] = {"symbol": symbol.upper()}
+        if order_id is not None:
+            params["orderId"] = str(order_id)
+        if client_id is not None:
+            params["origClientOrderId"] = str(client_id)
+        return self._call_signed(self.client.cancel_order, **params)
 
-    def get_order_status(self, symbol: str, order_id: str | int) -> dict[str, Any]:
-        return self._call_signed(
-            self.client.get_order,
-            symbol=symbol.upper(),
-            orderId=str(order_id)
-        )
+    def get_order_status(
+        self,
+        symbol: str,
+        order_id: str | int | None = None,
+        origClientOrderId: str | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        client_id = origClientOrderId or kwargs.get("orig_client_order_id")
+        params: dict[str, Any] = {"symbol": symbol.upper()}
+        if order_id is not None:
+            params["orderId"] = str(order_id)
+        if client_id is not None:
+            params["origClientOrderId"] = str(client_id)
+        return self._call_signed(self.client.get_order, **params)
 
     def get_open_orders(self, symbol: str) -> list[dict[str, Any]]:
         return self._call_signed(self.client.get_open_orders, symbol=symbol.upper())
@@ -316,8 +487,7 @@ class BinanceExecutionClient:
             locked = self._to_float(payload.get("locked"), 0.0)
             return free, locked
         except Exception as e:
-            import logging
-            logging.error(f"Error al consultar balance de {asset}: {e}")
+            logger.error(f"Error al consultar balance de {asset}: {e}")
             return 0.0, 0.0
 
     @staticmethod
@@ -336,7 +506,7 @@ class BinanceExecutionClient:
         return float((d_value // d_step) * d_step)
 
     def get_symbol_filters(self, symbol: str) -> SymbolFilters:
-        info = self.client.get_symbol_info(symbol.upper())
+        info = self._call_signed(self.client.get_symbol_info, symbol=symbol.upper())
         if not info:
             raise RuntimeError(f"Could not fetch symbol info for {symbol.upper()}.")
 
