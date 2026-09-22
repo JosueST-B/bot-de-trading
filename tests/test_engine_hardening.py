@@ -70,12 +70,12 @@ def validate_order_transition(current: str, target: str) -> bool:
 
 
 def contract_generate_client_order_id(symbol: str, action: str, timestamp_ms: Optional[int] = None) -> str:
-    """Format: AETH_{symbol}_{timestamp_ms}_{action[:4]} (len <= 36)."""
+    """Format: ARCA_{symbol}_{timestamp_ms}_{action[:4]} (len <= 36)."""
     if timestamp_ms is None:
         timestamp_ms = int(time.time() * 1000)
     clean_sym = symbol.replace("/", "").replace("-", "").replace("_", "").upper()
     act = action[:4].upper()
-    client_id = f"AETH_{clean_sym}_{timestamp_ms}_{act}"
+    client_id = f"ARCA_{clean_sym}_{timestamp_ms}_{act}"
     return client_id[:36]
 
 
@@ -353,7 +353,7 @@ class TestTier1FeatureCoverage(unittest.TestCase):
         self.assertEqual(mgr.get_active_mirror(), "https://api.binance.com")
 
     def test_t1_03_client_order_id_generation(self):
-        """Validates deterministic client order ID format: AETH_{symbol}_{timestamp_ms}_{action} <= 36 chars."""
+        """Validates deterministic client order ID format: ARCA_{symbol}_{timestamp_ms}_{action} <= 36 chars."""
         gen_fn = get_generate_client_order_id_fn()
         ts = 1726598400000
 
@@ -361,7 +361,7 @@ class TestTier1FeatureCoverage(unittest.TestCase):
         cid1 = gen_fn("BTCUSDT", "BUY", timestamp_ms=ts)
         cid2 = gen_fn("BTCUSDT", "BUY", timestamp_ms=ts)
         self.assertEqual(cid1, cid2)
-        self.assertEqual(cid1, "AETH_BTCUSDT_1726598400000_BUY")
+        self.assertEqual(cid1, "ARCA_BTCUSDT_1726598400000_BUY")
         self.assertLessEqual(len(cid1), 36)
 
         # Character set compliance (alphanumeric + underscore only)
@@ -369,7 +369,7 @@ class TestTier1FeatureCoverage(unittest.TestCase):
 
         # Punctuation sanitization in symbols
         cid_punct = gen_fn("ETH/USDT", "SELL", timestamp_ms=ts)
-        self.assertEqual(cid_punct, "AETH_ETHUSDT_1726598400000_SELL")
+        self.assertEqual(cid_punct, "ARCA_ETHUSDT_1726598400000_SELL")
 
         # Long action truncated to 4 characters
         cid_long = gen_fn("SOLUSDT", "STOP_LOSS_LIMIT", timestamp_ms=ts)

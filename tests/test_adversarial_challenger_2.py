@@ -162,10 +162,10 @@ class TestDrawdownLockStress(unittest.TestCase):
                 if cur.fetchone():
                     has_record = True
 
-            # Observation: Single-instance lock on line 180 returns before reaching Step 4 (SQLite sync)
-            self.assertFalse(
+            # Fixed in M3: Single-instance lock now syncs to SQLite via _persist_circuit_breaker_lock
+            self.assertTrue(
                 has_record,
-                "EMPIRICAL FINDING CONFIRMED: Line 180 early return skips Step 4 SQLite sync"
+                "Circuit breaker state must be recorded into SQLite upon single-bot lock"
             )
 
     def test_can_trade_suppresses_buys_under_drawdown_lock(self):
@@ -667,7 +667,7 @@ class TestStartupReconcilerCrashRecoveryStress(unittest.TestCase):
                     quantity=0.1,
                     stop_price=58800.0,
                     take_profit_price=62400.0,
-                    client_order_id="AETH_BTCUSDT_1726598400000_BUY",
+                    client_order_id="ARCA_BTCUSDT_1726598400000_BUY",
                     state=OrderState.PENDING_SUBMIT.value,
                     is_active=True,
                     entry_reason="pending_crash_test"

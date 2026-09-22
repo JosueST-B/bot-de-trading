@@ -132,9 +132,12 @@ def _ibkr_block(events: list[dict[str, Any]], cfg: BotConfig) -> dict[str, Any]:
         "cash_usd": None,
         "positions": None,
         "live_error": None,
+        "status": "STANDBY_YFINANCE",
+        "provider": "yfinance",
+        "connected": False,
     }
 
-    # Enriquecimiento opcional: net liquidation real desde IB Gateway
+    # Enriquecimiento opcional: net liquidation real desde IB Gateway o Standby yfinance
     if cfg.ibkr_enabled:
         client = None
         try:
@@ -144,24 +147,29 @@ def _ibkr_block(events: list[dict[str, Any]], cfg: BotConfig) -> dict[str, Any]:
             client.connect()
             block["net_liquidation"] = round(client.net_liquidation(), 2)
             block["cash_usd"] = round(client.account_cash_usd(), 2)
+            block["status"] = client.status
+            block["provider"] = client.active_provider
+            block["connected"] = client.is_connected
             positions = []
-            for sym in cfg.ibkr_symbols_list:
-                qty = client.position_qty(sym)
-                if qty != 0:
-                    positions.append({"symbol": sym, "qty": qty})
+            if client.is_connected:
+                for sym in cfg.ibkr_symbols_list:
+                    qty = client.position_qty(sym)
+                    if qty != 0:
+                        positions.append({"symbol": sym, "qty": qty})
             block["positions"] = positions
-            block["connected"] = True
         except Exception as exc:
             block["live_error"] = str(exc)
             block["connected"] = False
+            block["status"] = "STANDBY_YFINANCE"
+            block["provider"] = "yfinance"
         finally:
-            if client is not None:
+            if client is not None and getattr(client, "is_connected", False):
                 client.disconnect()
     return block
 
 
 def build_unified_summary(cfg: BotConfig, store: EventStore) -> dict[str, Any]:
-    """Ensambla el panel unificado. Nunca lanza excepciones al servidor."""
+    """Ensambla el panel unificado con reconciliacion dual y badges de sincronizacion."""
     try:
         events = store.recent_events(1000)
     except Exception as exc:
@@ -172,13 +180,49 @@ def build_unified_summary(cfg: BotConfig, store: EventStore) -> dict[str, Any]:
     earn = _earn_block(events, cfg)
     ibkr = _ibkr_block(events, cfg)
 
+    # Reconciliacion fiduciaria de balances y badges de sincronizacion
+    try:
+        from bot.portfolio_manager import get_dual_sync_status, reconcile_dual_balances
+
+        sync_badges = get_dual_sync_status(
+            binance_client=None,
+            ibkr_client=None,
+            cfg=cfg,
+        )
+        if ibkr.get("connected"):
+            sync_badges["ibkr"]["status"] = "CONNECTED"
+            sync_badges["ibkr"]["provider"] = "ib_async"
+            sync_badges["ibkr"]["label"] = "[IBKR: CONNECTED]"
+            sync_badges["ibkr"]["color"] = "#10b981"
+            sync_badges["ibkr"]["is_connected"] = True
+
+        reconciled = reconcile_dual_balances(None, None, cfg)
+    except Exception as exc:
+        log.warning("Error en calculo de reconciliacion dual: %s", exc)
+        sync_badges = {
+            "binance": {"status": "SIMULATED", "label": "[BINANCE: SIMULATED]"},
+            "ibkr": {"status": "STANDBY_YFINANCE", "label": "[IBKR: STANDBY_YFINANCE]"},
+        }
+        reconciled = {
+            "consolidated": {
+                "total_cash_usd": round(cfg.initial_balance + getattr(cfg, "ibkr_standby_cash", 10000.0), 2),
+                "total_equity_usd": round(cfg.initial_balance + getattr(cfg, "ibkr_standby_cash", 10000.0), 2),
+                "parity_ratio": "1 USDT = 1 USD",
+                "drawdown_limit_pct": -6.4,
+            }
+        }
+
     # PnL consolidado realizado (lo que ya se cerro, no incluye posiciones abiertas)
     consolidated_realized = _num(binance.get("realized_pnl"))
     earn_total = earn.get("total_usdt")
     ibkr_net = ibkr.get("net_liquidation")
 
+    total_equity = reconciled.get("consolidated", {}).get("total_equity_usd", 0.0)
+    total_cash = reconciled.get("consolidated", {}).get("total_cash_usd", 0.0)
+
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "sync_badges": sync_badges,
         "binance_trading": binance,
         "earn": earn,
         "ibkr": ibkr,
@@ -186,6 +230,13 @@ def build_unified_summary(cfg: BotConfig, store: EventStore) -> dict[str, Any]:
             "binance_realized_pnl": round(consolidated_realized, 2),
             "earn_balance_usdt": earn_total,
             "ibkr_net_liquidation": ibkr_net,
+            "total_consolidated_equity": total_equity,
+            "total_available_cash": total_cash,
+            "base_currency": "USD/USDT (Paridad 1:1)",
+            "fiduciary_drawdown_limit_pct": -6.4,
+            "sync_status": sync_badges,
+            "reconciliation": reconciled,
             "notes": "PnL realizado = trades cerrados. Earn e IBKR muestran saldo actual.",
         },
     }
+

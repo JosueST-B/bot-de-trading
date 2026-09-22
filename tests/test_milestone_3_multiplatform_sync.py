@@ -58,7 +58,7 @@ class TestMilestone3MultiPlatformSync(unittest.TestCase):
     static_port: int = 0
 
     MANDATORY_BRAND_STRINGS = [
-        "Aethelgard Quantitative",
+        "ArcaFid Quantitative",
         "Mandatos & Estructuras de Inversión",
         "Simulador Cuantitativo de Retornos",
         "Ratio Sharpe",
@@ -290,7 +290,7 @@ class TestMilestone3MultiPlatformSync(unittest.TestCase):
         self.assertEqual(res.status, 200, "Port 8770 GET / must respond 200 OK")
         body = res.read().decode("utf-8")
         conn.close()
-        self.assertIn("Aethelgard Quantitative", body)
+        self.assertIn("ArcaFid Quantitative", body)
 
         # 2. Admin workstation terminal view on port 8770 (/admin)
         conn = HTTPConnection("127.0.0.1", 8770, timeout=5)

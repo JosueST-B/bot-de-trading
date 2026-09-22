@@ -423,7 +423,7 @@ class TestE2EMonochromePlatform(unittest.TestCase):
         # SPA router fallback: arbitrary unknown path must serve portal with 200 OK
         status, headers, data = self._get("/portal/deep-link/arbitrary-path")
         self.assertEqual(status, 200, "Universal SPA router must catch deep links with HTTP 200 OK")
-        self.assertIn("Aethelgard Quantitative", data.decode("utf-8"))
+        self.assertIn("ArcaFid Quantitative", data.decode("utf-8"))
 
     def test_t1_20_export_client_blob_mechanism(self) -> None:
         """T1.20: Verify exportClientBlob client-side fallback implementation (REQ-MT-09)."""
@@ -718,7 +718,7 @@ class TestE2EMonochromePlatform(unittest.TestCase):
 
         # Invariant brand strings must be preserved verbatim in docs/index.html
         brand_invariants = [
-            "Aethelgard Quantitative",
+            "ArcaFid Quantitative",
             "Mandatos & Estructuras de Inversión",
             "Simulador Cuantitativo de Retornos",
             "Ratio Sharpe",

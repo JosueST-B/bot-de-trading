@@ -119,3 +119,48 @@ Fortalecer los mecanismos automáticos de protección de capital, asegurando que
 ### Verificación Automatizada
 - [ ] La suite completa de pruebas unitarias, de integración y de estrés (117 pruebas actuales + nuevas pruebas de resiliencia y concurrencia) pasa con 100% de éxito (`python -m unittest discover tests`).
 
+## Follow-up — 2026-09-21T20:31:33Z
+
+Evolución integral de la plataforma hacia una nueva identidad fiduciaria original ("ArcaFid Quantitative"), arquitectura visual con Conmutador Dual (Modo Blanco Puro "Crisp White" de alta luminosidad y Modo Terminal Oscuro), sincronización unificada de Binance e Interactive Brokers (IBKR con feed de acciones y ETFs en tiempo real vía yfinance), y expansión del cerebro ejecutor con la Cartera Híbrida Élite (BTC, ETH, SOL, BNB, XRP, LINK, AVAX, SUI + NVDA, AAPL, MSFT, AMZN, SPY, QQQ).
+
+Working directory: C:\Users\USUARIO\bot de trading
+Integrity mode: development
+
+## Requirements
+
+### R1. Nueva Identidad de Marca Fiduciaria y Conmutador Dual Blanco / Oscuro
+- Renombrar la marca fiduciaria en toda la plataforma a **ArcaFid Quantitative** (entidad fiduciaria original, sin precedentes de uso y de máxima confianza institucional).
+- Implementar un conmutador de tema dual en la barra de navegación superior (`[ ☀ LUMINOSO / ☾ TERMINAL ]`) con persistencia en `localStorage`.
+- **Modo Blanco Puro ("Crisp White"):** Fondo `#ffffff`, superficies de tarjetas limpias `#f8fafc` / `#ffffff` con bordes micro-métricos `1px solid rgba(0,0,0,0.08)`, tipografía nítida en carbón profundo `#09090b` / `#52525b`, acentos en azul institucional `#2563eb` y verde esmeralda `#10b981`, sin fatiga visual.
+- **Modo Terminal Oscuro:** Conservar el tema Zinc-950 `#09090b` de ultra-baja reflectancia.
+- Sincronizar la paridad total en el servidor local (`bot/institutional_portal.py`) y en los espejos estáticos (`index.html` y `docs/index.html` para GitHub Pages).
+
+### R2. Sincronización Dual Unificada: Binance + Interactive Brokers (IBKR)
+- Integrar la operativa en vivo y reconciliación de balances entre Binance y el conector de Interactive Brokers (`ib_async` para ejecución en TWS/Gateway puertos 7497/7496/4002/4001).
+- Incorporar el motor de datos de acciones y ETFs en tiempo real mediante `yfinance` para descargar velas dinámicas (15m, 1h, 1d) sin requerir suscripciones pagas de datos, manteniendo la alimentación activa del cerebro ejecutor en todo momento.
+- Mostrar el estado de sincronización dual en vivo en el portal institucional y panel unificado (badges de estado de Binance e IBKR).
+
+### R3. Cartera Híbrida Élite y Expansión de Actividades Cuantitativas
+- Expandir la canasta de activos del cerebro ejecutor a los 14 instrumentos líderes globales:
+  * **Top Cripto:** `BTC, ETH, SOL, BNB, XRP, LINK, AVAX, SUI` (Binance).
+  * **Top Acciones & ETFs:** `NVDA, AAPL, MSFT, AMZN, SPY, QQQ` (IBKR / yfinance).
+- Habilitar actividades avanzadas en el cerebro:
+  * Escaneo híbrido continuo (Cripto 24/7 + Acciones en horario bursátil con evaluación pre-mercado).
+  * Scoring multi-factor (Tendencia EMA + Momentum RSI + Volatilidad ATR + Filtro Machine Learning + Sentimiento FinBERT).
+  * Asignación actuarial de capital con cerrojo fiduciario de Drawdown en -6.4% extendido a la cartera consolidada.
+
+## Acceptance Criteria
+
+### Identidad y Experiencia Visual Dual
+- [ ] La plataforma ostenta la identidad "ArcaFid Quantitative" en encabezados, reportes PDF/CSV/JSON, metadatos y pruebas unitarias.
+- [ ] El botón conmutador alterna fluidamente entre el Modo Blanco Puro y el Modo Terminal Oscuro, aplicando los tokens CSS correspondientes y recordando la preferencia del usuario en recargas.
+- [ ] Ambas vistas (Blanco y Oscuro) mantienen cero fotos de stock, micro-bordes elegantes y cifras numéricas fijas (`tnum`).
+
+### Conectividad e Integración IBKR + yfinance
+- [ ] El conector de datos `yfinance` descarga DataFrames completos y validados (open, high, low, close, volume) para los 6 tickers de acciones/ETFs (`NVDA, AAPL, MSFT, AMZN, SPY, QQQ`) sin excepciones ni bloqueos.
+- [ ] El cliente IBKR gestiona la conexión local con TWS si el puerto está abierto o pasa a modo standby fiduciario con cotizaciones continuas de `yfinance` si el software de escritorio está cerrado, reportando el estado exacto en los paneles.
+
+### Ejecución de Cartera Híbrida y Pruebas Automatizadas
+- [ ] El cerebro ejecutor evalúa de forma asíncrona la canasta de 14 activos híbridos aplicando los filtros de régimen y auto-tuning.
+- [ ] El 100% de la suite de pruebas unitarias y de estrés (183 pruebas actuales + nuevas pruebas de conmutador visual, yfinance e IBKR) pasa limpiamente (`python -m unittest discover tests`).
+

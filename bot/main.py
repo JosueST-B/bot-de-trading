@@ -35,8 +35,41 @@ from bot.walkforward import run_fixed_walkforward, run_walkforward
 from bot.db import DBPosition, DBTrade, DBBotState, get_db_session, OrderState, generate_client_order_id
 from bot.earn_manager import EarnManager, build_earn_manager
 from bot.news_sentiment import NewsSentimentAnalyzer
+from enum import Enum
 
 
+class MarketSession(str, Enum):
+    CRYPTO_24_7 = "CRYPTO_24_7"
+    US_PRE_MARKET = "US_PRE_MARKET"   # 04:00 <= ET < 09:30 (Mon-Fri)
+    US_REGULAR = "US_REGULAR"         # 09:30 <= ET < 16:00 (Mon-Fri)
+    US_POST_MARKET = "US_POST_MARKET" # 16:00 <= ET < 20:00 (Mon-Fri)
+    US_CLOSED = "US_CLOSED"           # 20:00 <= ET < 04:00 or Weekends/Holidays
+
+
+def get_market_session(now_utc: datetime | None = None) -> MarketSession:
+    """Returns the current US market session for equities."""
+    from datetime import time as dtime
+    now = now_utc or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    try:
+        from zoneinfo import ZoneInfo
+        et = now.astimezone(ZoneInfo("America/New_York"))
+    except Exception:
+        et = now - timedelta(hours=5)
+
+    if et.weekday() >= 5:
+        return MarketSession.US_CLOSED
+
+    t = et.time()
+    if dtime(4, 0) <= t < dtime(9, 30):
+        return MarketSession.US_PRE_MARKET
+    elif dtime(9, 30) <= t < dtime(16, 0):
+        return MarketSession.US_REGULAR
+    elif dtime(16, 0) <= t < dtime(20, 0):
+        return MarketSession.US_POST_MARKET
+    else:
+        return MarketSession.US_CLOSED
 
 
 def _to_float(value: Any, fallback: float) -> float:
@@ -1008,6 +1041,32 @@ class LiveTrader:
         except Exception as e:
             logging.error(f"Error al analizar sentimiento de noticias en el ciclo: {e}")
 
+        # Evaluación simétrica de 5 factores cuantitativos (S_composite >= 0.72)
+        try:
+            from bot.quant_engine import QuantEngine
+            factor_breakdown = QuantEngine.evaluate_setup(
+                symbol=self.cfg.symbol,
+                df=analysis_df,
+                ml_filter=self.ml_filter,
+                news_analyzer=self.news_analyzer,
+                is_crypto=True,
+            )
+            logging.info(
+                f"[{self.cfg.symbol}] Composite 5-Factor Score: {factor_breakdown.composite:.3f} "
+                f"(Trend={factor_breakdown.trend:.2f}, Mom={factor_breakdown.momentum:.2f}, "
+                f"Vol={factor_breakdown.volatility:.2f}, ML={factor_breakdown.ml:.2f}, "
+                f"Sent={factor_breakdown.sentiment:.2f})"
+            )
+            if not factor_breakdown.is_buy_authorized:
+                self.last_processed_close_time = now
+                return {
+                    "time": now.isoformat(),
+                    "event": "hold",
+                    "reason": f"score_below_hurdle: {factor_breakdown.composite:.3f} < {factor_breakdown.details.get('hurdle', 0.72)}",
+                    "composite_score": factor_breakdown.composite,
+                }
+        except Exception as q_err:
+            logging.warning("[%s] Error al evaluar 5-factor scoring: %s", self.cfg.symbol, q_err)
 
         entry_ref = close * (1 + self.cfg.slippage)
         stop = entry_ref - (atr_value * self.cfg.stop_atr_mult)
@@ -2206,14 +2265,36 @@ def run_ibkr_loop(
     completed = 0
     try:
         while True:
-            if not client.is_market_open():
+            session = get_market_session()
+            if session in (MarketSession.US_CLOSED, MarketSession.US_POST_MARKET):
                 event = {
                     "time": datetime.now(timezone.utc).isoformat(),
                     "event": "hold",
-                    "reason": "market_closed",
+                    "reason": f"market_{session.value.lower()}",
+                    "session": session.value,
                 }
-                print("[IBKR] Mercado cerrado; esperando.")
-            else:
+                print(f"[IBKR] Mercado en sesión {session.value}; esperando.")
+            elif session == MarketSession.US_PRE_MARKET:
+                print("[IBKR] Sesión US_PRE_MARKET activa (04:00-09:30 ET). Evaluando cotizaciones dinámicas y setups...")
+                for symbol in cfg.ibkr_symbols_list:
+                    try:
+                        event = _ibkr_premarket_step(
+                            client, base_cfg, symbol,
+                            strategies[symbol], risks[symbol], last_close,
+                        )
+                        event_name = str(event.get("event", "pre_market_eval"))
+                        telemetry.record("ibkr_premarket", symbol, event_name, event)
+                        print(f"[IBKR:PRE-MARKET:{symbol}]", json.dumps(event, default=str))
+                    except Exception as exc:
+                        err = {
+                            "time": datetime.now(timezone.utc).isoformat(),
+                            "event": "ibkr_premarket_error",
+                            "error_type": type(exc).__name__,
+                            "message": str(exc),
+                        }
+                        telemetry.record("ibkr", symbol, "ibkr_premarket_error", err)
+                        print(f"[IBKR:PRE-MARKET:{symbol}] Error:", json.dumps(err, default=str))
+            else:  # US_REGULAR
                 for symbol in cfg.ibkr_symbols_list:
                     try:
                         event = _ibkr_step(
@@ -2237,9 +2318,111 @@ def run_ibkr_loop(
             completed += 1
             if cycles > 0 and completed >= cycles:
                 return
-            client.ib.sleep(sleep_seconds)
+            if hasattr(client, "ib") and hasattr(client.ib, "sleep"):
+                try:
+                    client.ib.sleep(sleep_seconds)
+                except Exception:
+                    time.sleep(sleep_seconds)
+            else:
+                time.sleep(sleep_seconds)
     finally:
         client.disconnect()
+
+
+def _fetch_equity_klines(
+    symbol: str, interval: str = "15m", limit: int = 500, client: Any = None
+) -> pd.DataFrame:
+    """
+    Fetches real-time equity/ETF klines from yfinance engine or connected IBKR client.
+    Standardized schema: [open_time, open, high, low, close, volume, close_time]
+    """
+    # 1. Try YFinanceDataEngine if available
+    try:
+        from bot.yfinance_engine import YFinanceDataEngine
+        yfe = YFinanceDataEngine()
+        df = yfe.get_klines(symbol, interval=interval)
+        if df is not None and len(df) >= 15:
+            return df.tail(limit).reset_index(drop=True)
+    except Exception:
+        pass
+
+    # 2. Try direct yfinance
+    try:
+        import yfinance as yf
+        ticker = yf.Ticker(symbol)
+        raw_df = ticker.history(period="5d", interval=interval)
+        if raw_df is not None and not raw_df.empty:
+            raw_df = raw_df.reset_index()
+            time_col = "Datetime" if "Datetime" in raw_df.columns else "Date"
+            raw_df["open_time"] = pd.to_datetime(raw_df[time_col], utc=True)
+            raw_df["close_time"] = raw_df["open_time"] + pd.Timedelta(minutes=15)
+            raw_df = raw_df.rename(columns={
+                "Open": "open", "High": "high", "Low": "low", "Close": "close", "Volume": "volume"
+            })
+            clean_df = raw_df[["open_time", "open", "high", "low", "close", "volume", "close_time"]]
+            return clean_df.tail(limit).reset_index(drop=True)
+    except Exception:
+        pass
+
+    # 3. Fallback to client if connected
+    if client is not None and hasattr(client, "get_klines"):
+        try:
+            return client.get_klines(symbol, interval, limit)
+        except Exception:
+            pass
+
+    return pd.DataFrame()
+
+
+def _ibkr_premarket_step(
+    client: Any,
+    base_cfg: BotConfig,
+    symbol: str,
+    strategy: Any,
+    risk: Any,
+    last_close: dict[str, datetime],
+) -> dict[str, Any]:
+    """
+    Evaluates setups during US pre-market (04:00 - 09:30 ET).
+    Downloads dynamic quotes/klines (via yfinance or client) and evaluates 5-factor scoring
+    without executing premature fills until regular market open.
+    """
+    now_iso = datetime.now(timezone.utc).isoformat()
+    df = _fetch_equity_klines(symbol, base_cfg.interval, base_cfg.lookback, client=client)
+    if len(df) < 20:
+        return {"time": now_iso, "event": "pre_market_eval", "symbol": symbol, "status": "insufficient_bars"}
+
+    analysis_df = df.iloc[:-1].copy() if len(df) > 20 else df.copy()
+    row = analysis_df.iloc[-1]
+    raw_ct = row["close_time"]
+    close_time = raw_ct.to_pydatetime() if hasattr(raw_ct, "to_pydatetime") else pd.to_datetime(raw_ct).to_pydatetime()
+
+    from bot.quant_engine import QuantEngine
+    score = QuantEngine.evaluate_setup(symbol, analysis_df, is_crypto=False)
+    close_val = float(row["close"])
+
+    last_close[symbol] = close_time
+
+    if score.is_buy_authorized:
+        return {
+            "time": now_iso,
+            "event": "pre_market_setup",
+            "symbol": symbol,
+            "price": close_val,
+            "composite_score": score.composite,
+            "factors": score.details,
+            "status": "deferred_to_regular_open",
+            "reason": f"pre_market_hurdle_cleared_{score.composite:.3f}_ge_0.72",
+        }
+    return {
+        "time": now_iso,
+        "event": "pre_market_eval",
+        "symbol": symbol,
+        "price": close_val,
+        "composite_score": score.composite,
+        "status": "score_below_hurdle",
+        "reason": f"composite_{score.composite:.3f}_below_hurdle",
+    }
 
 
 def _ibkr_step(client, base_cfg: BotConfig, symbol: str, strategy, risk, last_close) -> dict[str, Any]:
@@ -2272,6 +2455,30 @@ def _ibkr_step(client, base_cfg: BotConfig, symbol: str, strategy, risk, last_cl
     if not allowed:
         last_close[symbol] = close_time
         return {"time": now_iso, "event": "risk_pause", "reason": reason}
+
+    # 5-Factor Quantitative Brain Evaluation (S_composite >= 0.72)
+    from bot.quant_engine import QuantEngine
+    score = QuantEngine.evaluate_setup(symbol=symbol, df=analysis_df, is_crypto=False)
+    if not score.is_buy_authorized:
+        last_close[symbol] = close_time
+        return {
+            "time": now_iso,
+            "event": "hold",
+            "reason": f"score_below_hurdle: {score.composite:.3f} < {score.details.get('hurdle', 0.72)}",
+            "composite_score": score.composite,
+        }
+
+    # Volatility spike check
+    vol_allowed, vol_ratio, vol_reason = risk.validate_volatility_regime(analysis_df)
+    if not vol_allowed:
+        last_close[symbol] = close_time
+        return {"time": now_iso, "event": "risk_pause", "reason": vol_reason, "volatility_ratio": vol_ratio}
+
+    # Consolidated circuit breaker check
+    cb_allowed, cb_reason = risk.check_global_circuit_breaker(equity)
+    if not cb_allowed:
+        last_close[symbol] = close_time
+        return {"time": now_iso, "event": "risk_pause", "reason": cb_reason}
 
     close = float(row["close"])
     atr_value = float(atr(analysis_df["high"], analysis_df["low"], analysis_df["close"], 14).iloc[-1])
@@ -2307,6 +2514,126 @@ def _ibkr_step(client, base_cfg: BotConfig, symbol: str, strategy, risk, last_cl
         "reason": signal.reason,
         "order_status": order.get("status"),
     }
+
+
+def run_hybrid_loop(
+    cfg: BotConfig,
+    confirm_live: str = "",
+    cycles: int = 0,
+    sleep_seconds: int = 300,
+) -> None:
+    """
+    Continuous hybrid portfolio scan across all 14 elite assets:
+    - 8 Top Crypto: BTC, ETH, SOL, BNB, XRP, LINK, AVAX, SUI (24/7/365 continuous scan via Binance).
+    - 6 Top Equities & ETFs: NVDA, AAPL, MSFT, AMZN, SPY, QQQ (IBKR / yfinance market session scan).
+
+    Operates on a 5-state market session machine:
+    - CRYPTO_24_7: Crypto scans continuously and never sleeps or halts on US market closure.
+    - US_PRE_MARKET (04:00 - 09:30 ET): Evaluates dynamic yfinance klines and 5-factor scoring without premature fills.
+    - US_REGULAR (09:30 - 16:00 ET): Evaluates setups and executes regular orders.
+    - US_POST_MARKET & US_CLOSED: Keeps equity state and continues 24/7 crypto scanning.
+    """
+    telemetry = build_telemetry(cfg)
+    telemetry.alert("<b>ArcaFid Quantitative</b>: Hybrid Portfolio Loop Iniciado (14 Activos: 8 Cripto + 6 Acciones/ETFs)")
+
+    # 1. Initialize crypto traders
+    crypto_traders: dict[str, LiveTrader] = {}
+    for symbol in cfg.symbols_to_trade:
+        sym_cfg = replace(cfg, symbol=symbol)
+        try:
+            crypto_traders[symbol] = LiveTrader(sym_cfg, state_store=telemetry.store)
+        except Exception as c_err:
+            logging.warning("No se pudo inicializar LiveTrader para crypto %s: %s", symbol, c_err)
+
+    # 2. Initialize stock strategies and risks
+    stock_base_cfg = replace(
+        cfg,
+        interval=cfg.ibkr_interval,
+        use_btc_macro_filter=False,
+        use_multi_timeframe=False,
+        live_max_quote_per_trade=cfg.ibkr_max_quote_per_trade,
+    )
+    stock_strategies: dict[str, Any] = {}
+    stock_risks: dict[str, Any] = {}
+    for symbol in cfg.ibkr_symbols_list:
+        sym_cfg = replace(stock_base_cfg, symbol=symbol)
+        stock_strategies[symbol] = HybridStrategy(sym_cfg)
+        stock_risks[symbol] = RiskManager(sym_cfg)
+
+    # 3. Optional IBKR client
+    ibkr_client = None
+    if cfg.ibkr_enabled:
+        try:
+            from bot.ibkr_client import IBKRClient
+            ibkr_client = IBKRClient(cfg)
+            ibkr_client.connect()
+        except Exception as ib_err:
+            logging.warning("IBKR client en modo standby (yfinance feed activo): %s", ib_err)
+
+    last_stock_close: dict[str, datetime] = {}
+    completed_cycles = 0
+
+    try:
+        while True:
+            # A. Continuous Crypto Scan (24/7/365)
+            for symbol, trader in crypto_traders.items():
+                try:
+                    event = trader.step()
+                    trader.save_state()
+                    telemetry.record("live_crypto", symbol, str(event.get("event")), event)
+                    print(f"[HYBRID:CRYPTO:{symbol}]", json.dumps(event, default=str))
+                except Exception as exc:
+                    logging.error(f"[HYBRID:CRYPTO:{symbol}] Error: {exc}")
+
+            # B. Equities Market Session Scan
+            session = get_market_session()
+            if session == MarketSession.US_PRE_MARKET:
+                print("[HYBRID:EQUITIES] Sesión US_PRE_MARKET activa. Evaluando 6 activos vía yfinance...")
+                for symbol in cfg.ibkr_symbols_list:
+                    try:
+                        event = _ibkr_premarket_step(
+                            ibkr_client, stock_base_cfg, symbol,
+                            stock_strategies[symbol], stock_risks[symbol], last_stock_close
+                        )
+                        telemetry.record("hybrid_premarket", symbol, str(event.get("event")), event)
+                        print(f"[HYBRID:PRE-MARKET:{symbol}]", json.dumps(event, default=str))
+                    except Exception as exc:
+                        logging.warning(f"[HYBRID:PRE-MARKET:{symbol}] Error: {exc}")
+            elif session == MarketSession.US_REGULAR and ibkr_client is not None:
+                print("[HYBRID:EQUITIES] Sesión US_REGULAR activa. Evaluando ejecución...")
+                for symbol in cfg.ibkr_symbols_list:
+                    try:
+                        event = _ibkr_step(
+                            ibkr_client, stock_base_cfg, symbol,
+                            stock_strategies[symbol], stock_risks[symbol], last_stock_close
+                        )
+                        telemetry.record("hybrid_stock", symbol, str(event.get("event")), event)
+                        print(f"[HYBRID:STOCK:{symbol}]", json.dumps(event, default=str))
+                    except Exception as exc:
+                        logging.warning(f"[HYBRID:STOCK:{symbol}] Error: {exc}")
+            else:
+                print(f"[HYBRID:EQUITIES] Estado {session.value}. Cripto continúa 24/7 sin interrupción.")
+
+            completed_cycles += 1
+            if cycles > 0 and completed_cycles >= cycles:
+                return
+
+            time.sleep(sleep_seconds)
+    finally:
+        for sym, trader in crypto_traders.items():
+            try:
+                trader.close()
+            except Exception:
+                pass
+        if ibkr_client is not None:
+            try:
+                ibkr_client.disconnect()
+            except Exception:
+                pass
+        try:
+            telemetry.close()
+        except Exception:
+            pass
 
 
 def run_earn_cmd(cfg: BotConfig, dry_run: bool) -> None:
@@ -3055,6 +3382,11 @@ def parse_args() -> argparse.Namespace:
     p_ibkr.add_argument("--cycles", type=int, default=0, help="0 = infinite")
     p_ibkr.add_argument("--sleep-seconds", type=int, default=300)
 
+    p_hybrid = sub.add_parser("hybrid", help="Run 14-asset continuous hybrid portfolio loop (Crypto 24/7 + US Equities)")
+    p_hybrid.add_argument("--confirm-live", default="", help="Required for real trading")
+    p_hybrid.add_argument("--cycles", type=int, default=0, help="0 = infinite")
+    p_hybrid.add_argument("--sleep-seconds", type=int, default=300)
+
     p_earn = sub.add_parser("earn", help="Run one Binance Earn sweep (flexible/locked/dust)")
     p_earn.add_argument("--dry-run", action="store_true", help="Simulate without moving funds")
 
@@ -3294,6 +3626,15 @@ def main() -> None:
     if args.mode == "ibkr":
         run_ibkr_loop(
             cfg,
+            confirm_live=args.confirm_live,
+            cycles=args.cycles,
+            sleep_seconds=args.sleep_seconds,
+        )
+        return
+
+    if args.mode in ("hybrid", "hybrid-loop"):
+        run_hybrid_loop(
+            cfg=cfg,
             confirm_live=args.confirm_live,
             cycles=args.cycles,
             sleep_seconds=args.sleep_seconds,

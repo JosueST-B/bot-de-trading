@@ -119,7 +119,7 @@ class TestChallengerM2Empirical(unittest.TestCase):
         # Parse JSON
         parsed = json.loads(data.decode("utf-8"))
         self.assertIn("syndicate", parsed)
-        self.assertEqual(parsed["syndicate"], "Aethelgard Quantitative Asset Management")
+        self.assertEqual(parsed["syndicate"], "ArcaFid Quantitative Asset Management")
         self.assertIn("telemetry", parsed)
         self.assertIn("audited_ledger", parsed)
 
@@ -319,7 +319,7 @@ class TestChallengerM2Empirical(unittest.TestCase):
         self.assertIn("function filterBySymbol", INSTITUTIONAL_PORTAL_HTML)
         self.assertIn("activeSymbolFilter", INSTITUTIONAL_PORTAL_HTML)
         self.assertIn("font-feature-settings: \"tnum\" 1, \"zero\" 1", INSTITUTIONAL_PORTAL_HTML)
-        self.assertIn("Aethelgard Quantitative", INSTITUTIONAL_PORTAL_HTML)
+        self.assertIn("ArcaFid Quantitative", INSTITUTIONAL_PORTAL_HTML)
 
 
 if __name__ == "__main__":

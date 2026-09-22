@@ -1,13 +1,13 @@
-# AETHELGARD QUANTITATIVE ASSET MANAGEMENT · Multi-Asset Algorithmic Trading Platform
+# ARCAFID QUANTITATIVE ASSET MANAGEMENT · Multi-Asset Algorithmic Trading Platform
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: Proprietary / Institutional](https://img.shields.io/badge/license-Institutional-navy.svg)](#licencia)
 | [Live Demo (GitHub Pages)](https://josuest-b.github.io/bot-de-trading/) |
 [![Hugging Face](https://img.shields.io/badge/Hugging%20Face-ProsusAI%2Ffinbert-yellow.svg)](https://huggingface.co/ProsusAI/finbert)
 [![Compliance: SOC 2 Type II / ISO 27001](https://img.shields.io/badge/compliance-SOC%202%20%7C%20ISO%2027001-emerald.svg)](#cumplimiento-y-seguridad)
-[![Tests Passing](https://img.shields.io/badge/tests-26%2F26%20passing-brightgreen.svg)](#verificación-y-tests)
+[![Tests Passing](https://img.shields.io/badge/tests-246%2F246%20passing-brightgreen.svg)](#verificación-y-tests)
 
-Plataforma integral de gestión de activos cuantitativos de grado institucional y sindicato algorítmico autónomo. Diseñada para la ejecución sistemática de estrategias multiactivo (Cripto Spot en Binance y Acciones en Interactive Brokers / NYSE / NASDAQ), optimización de liquidez en Binance Earn, supervisión de riesgo fiduciario en tiempo real y portal web para inversores auditado criptográficamente.
+Plataforma integral de gestión de activos cuantitativos de grado institucional y sindicato algorítmico autónomo **ArcaFid Quantitative**. Diseñada para la ejecución sistemática de estrategias multiactivo híbridas (8 Criptoactivos líderes en Binance y 6 Acciones/ETFs de alta liquidez en Interactive Brokers vía TWS y fallback de datos yfinance), optimización de liquidez, supervisión fiduciaria con cerrojo de drawdown de -6.4% y portal web con conmutador dual Blanco Puro / Terminal Oscuro.
 
 ---
 

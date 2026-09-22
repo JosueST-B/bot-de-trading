@@ -29,7 +29,8 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AETHELGARD QUANTITATIVE ASSET MANAGEMENT · Algorithmic Syndicate & Alpha Engine</title>
+<title>ARCAFID QUANTITATIVE ASSET MANAGEMENT · Algorithmic Syndicate & Alpha Engine</title>
+<meta name="brand" content="ArcaFid Quantitative" data-legacy="Aethelgard Quantitative">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -57,7 +58,43 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
     --gold: #f4f4f5;
     --gold-bright: #e4e4e7;
     --purple: #a1a1aa;
+    --btn-primary-bg: #f4f4f5;
+    --btn-primary-text: #09090b;
+    --btn-outline-bg: #14161b;
+    --btn-outline-text: #f4f4f5;
+    --btn-outline-border: rgba(255, 255, 255, 0.14);
   }
+
+  [data-theme="light"], body.theme-light {
+    --bg-base: #ffffff;
+    --bg-surface: #f8fafc;
+    --bg-card: #ffffff;
+    --bg-card-hover: #f1f5f9;
+    --bg-elevated: #f8fafc;
+    --border: rgba(0, 0, 0, 0.08);
+    --border-light: rgba(0, 0, 0, 0.12);
+    --border-accent: rgba(0, 0, 0, 0.18);
+    --text-main: #09090b;
+    --text-muted: #52525b;
+    --text-dim: #71717a;
+    --accent: #2563eb;
+    --accent-bright: #1d4ed8;
+    --accent-glow: transparent;
+    --green: #10b981;
+    --green-bright: #059669;
+    --green-glow: transparent;
+    --red: #e11d48;
+    --red-bright: #be123c;
+    --gold: #2563eb;
+    --gold-bright: #1d4ed8;
+    --purple: #6366f1;
+    --btn-primary-bg: #09090b;
+    --btn-primary-text: #ffffff;
+    --btn-outline-bg: #ffffff;
+    --btn-outline-text: #09090b;
+    --btn-outline-border: rgba(0, 0, 0, 0.12);
+  }
+
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     background-color: var(--bg-base);
@@ -78,7 +115,7 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
   
   /* Top Institutional Header */
   header {
-    background: #111215;
+    background: var(--bg-surface);
     border-bottom: 1px solid var(--border);
     position: sticky;
     top: 0;
@@ -93,12 +130,12 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
   .brand-wrap { display: flex; align-items: center; gap: 12px; text-decoration: none; color: inherit; }
   .brand-crest {
     width: 32px; height: 32px; border-radius: 4px;
-    background: #14161b;
+    background: var(--bg-card);
     display: flex; align-items: center; justify-content: center;
     border: 1px solid var(--border);
   }
-  .brand-crest svg { width: 18px; height: 18px; fill: #f4f4f5; }
-  .brand-text h1 { font-size: 13px; font-weight: 800; letter-spacing: 0.8px; text-transform: uppercase; color: #f4f4f5; line-height: 1.2; font-family: 'JetBrains Mono', monospace; }
+  .brand-crest svg { width: 18px; height: 18px; fill: var(--text-main); }
+  .brand-text h1 { font-size: 13px; font-weight: 800; letter-spacing: 0.8px; text-transform: uppercase; color: var(--text-main); line-height: 1.2; font-family: 'JetBrains Mono', monospace; }
   .brand-text p { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; font-weight: 600; }
   
   .nav-menu { display: flex; gap: 18px; align-items: center; list-style: none; flex-wrap: wrap; }
@@ -107,10 +144,10 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
     text-transform: uppercase; letter-spacing: 0.5px; transition: color 0.15s, border-color 0.15s;
     padding-bottom: 4px; border-bottom: 2px solid transparent; font-family: 'JetBrains Mono', monospace;
   }
-  .nav-menu a:hover { color: #fff; border-bottom-color: #f4f4f5; }
+  .nav-menu a:hover { color: var(--text-main); border-bottom-color: var(--accent); }
   .nav-right { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   
-  /* Buttons (Monochrome Terminal: Solid White Accent Button) */
+  /* Buttons (Monochrome Terminal: Solid Accent Button) */
   .btn {
     display: inline-flex; align-items: center; gap: 8px;
     padding: 8px 16px; border-radius: 4px; font-size: 11px; font-weight: 700;
@@ -119,29 +156,27 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
   }
   .btn:hover { transform: translateY(-1px); }
   .btn-primary, .btn-gold, .btn-green {
-    background: #f4f4f5;
-    color: #09090b;
-    border-color: #f4f4f5;
+    background: var(--btn-primary-bg);
+    color: var(--btn-primary-text);
+    border-color: var(--btn-primary-bg);
   }
   .btn-primary:hover, .btn-gold:hover, .btn-green:hover {
-    background: #e4e4e7;
-    color: #09090b;
-    border-color: #e4e4e7;
+    filter: brightness(0.92);
   }
   .btn-outline {
-    background: #14161b;
-    border-color: var(--border-light);
-    color: #f4f4f5;
+    background: var(--btn-outline-bg);
+    border-color: var(--btn-outline-border);
+    color: var(--btn-outline-text);
   }
   .btn-outline:hover {
     background: var(--bg-card-hover);
-    border-color: rgba(255, 255, 255, 0.25);
-    color: #fff;
+    border-color: var(--border-accent);
+    color: var(--text-main);
   }
   
   /* Currency Switcher Control */
   .curr-switcher {
-    display: inline-flex; background: #111215; border: 1px solid var(--border);
+    display: inline-flex; background: var(--bg-surface); border: 1px solid var(--border);
     border-radius: 4px; padding: 2px; font-family: 'JetBrains Mono', monospace; font-size: 10px;
   }
   .curr-btn {
@@ -149,11 +184,24 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
     padding: 3px 8px; border-radius: 3px; font-size: 10px; font-weight: 700; cursor: pointer;
     transition: all 0.15s; font-family: 'JetBrains Mono', monospace;
   }
-  .curr-btn.active { background: #f4f4f5; color: #09090b; }
+  .curr-btn.active { background: var(--btn-primary-bg); color: var(--btn-primary-text); }
+  
+  /* Dual Theme Switcher Component */
+  .theme-switcher {
+    display: inline-flex; background: var(--bg-surface); border: 1px solid var(--border);
+    border-radius: 4px; padding: 2px; font-family: 'JetBrains Mono', monospace; font-size: 10px;
+  }
+  .theme-btn {
+    background: transparent; border: none; color: var(--text-muted);
+    padding: 3px 8px; border-radius: 3px; font-size: 10px; font-weight: 700; cursor: pointer;
+    transition: all 0.15s; font-family: 'JetBrains Mono', monospace;
+  }
+  .theme-btn:hover { color: var(--text-main); }
+  .theme-btn.active { background: var(--btn-primary-bg); color: var(--btn-primary-text); }
   
   /* Global Market Sessions Bar */
   .market-sessions-bar {
-    background: #111215;
+    background: var(--bg-surface);
     border-bottom: 1px solid var(--border);
     padding: 6px 32px;
     display: flex;
@@ -174,7 +222,7 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
   
   /* Live Ticker Tape */
   .ticker-tape {
-    background: #09090b;
+    background: var(--bg-base);
     border-bottom: 1px solid var(--border);
     padding: 7px 32px;
     display: flex;
@@ -185,18 +233,18 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
     font-family: 'JetBrains Mono', monospace;
   }
   .ticker-cell { display: inline-flex; align-items: center; gap: 8px; padding-right: 14px; border-right: 1px solid var(--border); }
-  .sym { font-weight: 700; color: #f4f4f5; }
-  .price { color: #d4d4d8; }
+  .sym { font-weight: 700; color: var(--text-main); }
+  .price { color: var(--text-muted); }
   .up { color: var(--green); font-weight: 700; }
   .down { color: var(--red); font-weight: 700; }
   .badge-tag {
     display: inline-block; padding: 2px 7px; border-radius: 3px;
     font-size: 10px; font-weight: 700; font-family: 'JetBrains Mono', monospace; letter-spacing: 0.3px;
-    border: 1px solid var(--border); background: #14161b; color: var(--text-muted);
+    border: 1px solid var(--border); background: var(--bg-card); color: var(--text-muted);
   }
   .tag-verified { color: var(--green); border-color: rgba(16, 185, 129, 0.3); background: rgba(16, 185, 129, 0.08); }
-  .tag-audited { color: var(--text-main); border-color: var(--border-light); background: #14161b; }
-  .tag-live { color: #f4f4f5; border-color: var(--border); background: #111215; }
+  .tag-audited { color: var(--text-main); border-color: var(--border-light); background: var(--bg-card); }
+  .tag-live { color: var(--text-main); border-color: var(--border); background: var(--bg-surface); }
   
   /* Container & Grid */
   .container { max-width: 1380px; margin: 0 auto; padding: 36px 24px; }
@@ -214,13 +262,13 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
   }
   .block-title {
     font-size: 20px; font-weight: 800; text-transform: uppercase; letter-spacing: -0.3px;
-    color: #f4f4f5; line-height: 1.2;
+    color: var(--text-main); line-height: 1.2;
   }
   .block-desc { font-size: 12px; color: var(--text-muted); margin-top: 4px; max-width: 780px; }
   
   /* Circuit Breakers Banner */
   .circuit-breakers-banner {
-    background: #111215;
+    background: var(--bg-surface);
     border: 1px solid var(--border);
     border-radius: 4px;
     padding: 12px 18px;
@@ -256,7 +304,7 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
     background: var(--border-light);
   }
   .metric-lbl { font-size: 9px; font-weight: 800; text-transform: uppercase; color: var(--text-dim); letter-spacing: 0.8px; }
-  .metric-val { font-size: 20px; font-weight: 800; color: #f4f4f5; margin-top: 5px; font-family: 'JetBrains Mono', monospace; }
+  .metric-val { font-size: 20px; font-weight: 800; color: var(--text-main); margin-top: 5px; font-family: 'JetBrains Mono', monospace; }
   .metric-sub { font-size: 10px; color: var(--text-muted); margin-top: 3px; font-family: 'JetBrains Mono', monospace; }
   
   /* Dual-Pane Financial Chart Box (Block 2) */
@@ -273,15 +321,15 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
     border-bottom: 1px solid var(--border); padding-bottom: 14px; margin-bottom: 14px;
     flex-wrap: wrap; gap: 10px;
   }
-  .chart-title { font-size: 11px; font-weight: 800; text-transform: uppercase; color: #f4f4f5; letter-spacing: 0.5px; font-family: 'JetBrains Mono', monospace; }
+  .chart-title { font-size: 11px; font-weight: 800; text-transform: uppercase; color: var(--text-main); letter-spacing: 0.5px; font-family: 'JetBrains Mono', monospace; }
   .tf-group { display: flex; gap: 4px; }
   .tf-btn {
-    background: #111215; border: 1px solid var(--border); color: var(--text-muted);
+    background: var(--bg-surface); border: 1px solid var(--border); color: var(--text-muted);
     padding: 4px 10px; border-radius: 3px; font-size: 10px; font-weight: 700; cursor: pointer;
     font-family: 'JetBrains Mono', monospace; transition: all 0.15s;
   }
-  .tf-btn:hover { color: #fff; border-color: rgba(255,255,255,0.25); }
-  .tf-btn.active { background: #f4f4f5; color: #09090b; border-color: #f4f4f5; }
+  .tf-btn:hover { color: var(--text-main); border-color: var(--border-light); }
+  .tf-btn.active { background: var(--btn-primary-bg); color: var(--btn-primary-text); border-color: var(--btn-primary-bg); }
   
   /* Microstructure Box */
   .microstructure-box {
@@ -292,7 +340,7 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
     margin-bottom: 24px;
   }
   .micro-top {
-    background: #111215;
+    background: var(--bg-surface);
     border-bottom: 1px solid var(--border);
     padding: 10px 18px;
     display: flex;
@@ -324,7 +372,7 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
   .time-sales-wrap { padding: 18px; }
   .ts-table { width: 100%; border-collapse: collapse; font-size: 10px; font-family: 'JetBrains Mono', monospace; }
   .ts-table th { color: var(--text-dim); text-align: left; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
-  .ts-table td { padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,0.03); }
+  .ts-table td { padding: 5px 0; border-bottom: 1px solid var(--border); }
   
   /* Portfolio Asset Allocation & Risk Telemetry */
   .alloc-grid {
@@ -342,7 +390,7 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
   }
   .alloc-bar-multi {
     height: 10px; border-radius: 2px; overflow: hidden; display: flex; margin: 16px 0 20px;
-    background: #111215; border: 1px solid var(--border);
+    background: var(--bg-surface); border: 1px solid var(--border);
   }
   .bar-seg { height: 100%; transition: width 0.3s; }
   
@@ -357,7 +405,7 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
   }
   .table-matrix { width: 100%; border-collapse: collapse; font-size: 11px; font-family: 'JetBrains Mono', monospace; }
   .table-matrix th { color: var(--text-dim); padding: 8px 6px; text-align: center; border-bottom: 1px solid var(--border); font-size: 10px; }
-  .table-matrix td { padding: 8px 6px; text-align: center; border-bottom: 1px solid rgba(255,255,255,0.03); }
+  .table-matrix td { padding: 8px 6px; text-align: center; border-bottom: 1px solid var(--border); }
   .heat-win { color: var(--green); }
   .heat-win-deep { color: var(--green); font-weight: 700; }
   .heat-neutral { color: var(--text-dim); }
@@ -381,21 +429,21 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
     position: relative;
     transition: transform 0.2s, border-color 0.2s;
   }
-  .vehicle-panel:hover { transform: translateY(-2px); border-color: rgba(255, 255, 255, 0.25); }
+  .vehicle-panel:hover { transform: translateY(-2px); border-color: var(--border-accent); }
   .vehicle-panel.tier-syndicate { border-color: var(--border-light); }
   .tier-flag {
     position: absolute; top: 14px; right: 14px; z-index: 10;
     font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px;
-    padding: 3px 8px; border-radius: 3px; background: #111215; color: #f4f4f5; border: 1px solid var(--border-light);
+    padding: 3px 8px; border-radius: 3px; background: var(--bg-surface); color: var(--text-main); border: 1px solid var(--border-light);
     font-family: 'JetBrains Mono', monospace;
   }
   .veh-header-badge {
-    background: #111215; border: 1px solid var(--border); border-radius: 3px;
+    background: var(--bg-surface); border: 1px solid var(--border); border-radius: 3px;
     padding: 8px 12px; margin-bottom: 14px; font-family: 'JetBrains Mono', monospace;
     font-size: 10px; font-weight: 700; color: var(--text-muted); display: flex; justify-content: space-between;
   }
   .veh-class { font-size: 10px; font-weight: 800; text-transform: uppercase; color: var(--text-dim); letter-spacing: 1px; }
-  .veh-name { font-size: 16px; font-weight: 800; color: #f4f4f5; margin: 4px 0 6px; }
+  .veh-name { font-size: 16px; font-weight: 800; color: var(--text-main); margin: 4px 0 6px; }
   .veh-desc { font-size: 11px; color: var(--text-muted); line-height: 1.5; min-height: 36px; margin-bottom: 16px; }
   .veh-target-box {
     background: var(--bg-surface);
@@ -410,7 +458,7 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
   .target-label { font-size: 9px; font-weight: 700; text-transform: uppercase; color: var(--text-dim); }
   .target-val { font-size: 14px; font-weight: 800; color: var(--green); font-family: 'JetBrains Mono', monospace; }
   .veh-list { list-style: none; font-size: 11px; font-family: 'JetBrains Mono', monospace; margin-bottom: 20px; }
-  .veh-list li { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,0.03); color: #d4d4d8; }
+  .veh-list li { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid var(--border); color: var(--text-main); }
   .veh-list li span:first-child { color: var(--text-muted); }
   
   /* Infrastructure Grid (Block 4 - No Images) */
@@ -431,13 +479,13 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
     padding: 20px;
     transition: transform 0.2s;
   }
-  .infra-card:hover { transform: translateY(-2px); border-color: rgba(255, 255, 255, 0.2); }
+  .infra-card:hover { transform: translateY(-2px); border-color: var(--border-accent); }
   .infra-header-meta {
     display: flex; justify-content: space-between; align-items: center;
     border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 12px;
     font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-dim);
   }
-  .infra-title { font-size: 14px; font-weight: 800; color: #f4f4f5; margin-bottom: 6px; }
+  .infra-title { font-size: 14px; font-weight: 800; color: var(--text-main); margin-bottom: 6px; }
   .infra-text { font-size: 11px; color: var(--text-muted); line-height: 1.55; margin-bottom: 14px; }
   .infra-footer { font-size: 10px; font-family: 'JetBrains Mono', monospace; padding-top: 10px; border-top: 1px solid var(--border); color: var(--text-muted); }
   
@@ -458,7 +506,7 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
     overflow: hidden;
   }
   .arch-tag { font-size: 9px; font-weight: 800; text-transform: uppercase; color: var(--text-dim); letter-spacing: 1px; margin-bottom: 6px; font-family: 'JetBrains Mono', monospace; }
-  .arch-name { font-size: 14px; font-weight: 800; color: #f4f4f5; margin-bottom: 8px; }
+  .arch-name { font-size: 14px; font-weight: 800; color: var(--text-main); margin-bottom: 8px; }
   .arch-desc { font-size: 11px; color: var(--text-muted); line-height: 1.55; margin-bottom: 12px; }
   .arch-specs { font-size: 10px; font-family: 'JetBrains Mono', monospace; color: var(--text-dim); border-top: 1px solid var(--border); padding-top: 8px; }
   
@@ -467,25 +515,25 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
     display: flex; justify-content: space-between; align-items: center;
     background: var(--bg-surface); border: 1px solid var(--border);
     border-radius: 4px; padding: 12px 16px; margin-bottom: 14px;
-    flex-wrap: wrap; gap: 12px;
+    flex-wrap: gap; gap: 12px;
   }
   .audit-search {
-    background: #09090b; border: 1px solid var(--border); border-radius: 3px;
+    background: var(--bg-base); border: 1px solid var(--border); border-radius: 3px;
     padding: 7px 12px; font-size: 11px; font-family: 'JetBrains Mono', monospace;
-    color: #f4f4f5; min-width: 280px; outline: none;
+    color: var(--text-main); min-width: 280px; outline: none;
   }
-  .audit-search:focus { border-color: rgba(255, 255, 255, 0.3); }
+  .audit-search:focus { border-color: var(--border-light); }
   .trade-table-wrap {
     overflow-x: auto; background: var(--bg-card);
     border: 1px solid var(--border); border-radius: 4px;
   }
   .trade-table { width: 100%; border-collapse: collapse; font-size: 11px; font-family: 'JetBrains Mono', monospace; }
   .trade-table th {
-    background: #111215; text-align: left; padding: 10px 14px;
+    background: var(--bg-surface); text-align: left; padding: 10px 14px;
     font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--text-dim);
     border-bottom: 1px solid var(--border); letter-spacing: 0.5px;
   }
-  .trade-table td { padding: 9px 14px; border-bottom: 1px solid rgba(255,255,255,0.03); color: #d4d4d8; }
+  .trade-table td { padding: 9px 14px; border-bottom: 1px solid var(--border); color: var(--text-main); }
   
   /* Modals (Clean Minimalist Terminal Dialogs) */
   .modal-shade {
@@ -496,7 +544,7 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
   }
   .modal-shade.active { display: flex; }
   .modal-dialog {
-    background: #111215;
+    background: var(--bg-surface);
     border: 1px solid var(--border-light);
     border-radius: 4px;
     width: 100%; max-width: 520px;
@@ -509,13 +557,13 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
   }
   .input-label { display: block; font-size: 10px; font-weight: 800; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px; letter-spacing: 0.5px; }
   .ctrl-input, .ctrl-select {
-    width: 100%; background: #09090b; border: 1px solid var(--border-light);
-    border-radius: 4px; padding: 9px 12px; color: #f4f4f5; font-size: 11px; font-family: 'JetBrains Mono', monospace; margin-bottom: 14px;
+    width: 100%; background: var(--bg-base); border: 1px solid var(--border-light);
+    border-radius: 4px; padding: 9px 12px; color: var(--text-main); font-size: 11px; font-family: 'JetBrains Mono', monospace; margin-bottom: 14px;
   }
-  .ctrl-input:focus, .ctrl-select:focus { outline: none; border-color: rgba(255, 255, 255, 0.4); }
+  .ctrl-input:focus, .ctrl-select:focus { outline: none; border-color: var(--border-accent); }
   
   .security-shield {
-    background: #14161b;
+    background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: 4px;
     padding: 14px;
@@ -524,7 +572,7 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
     line-height: 1.55;
     font-family: 'JetBrains Mono', monospace;
   }
-  .security-shield b { color: #f4f4f5; }
+  .security-shield b { color: var(--text-main); }
   
   /* Compliance Badges Strip */
   .compliance-strip {
@@ -532,14 +580,14 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
     margin: 20px 0 10px;
   }
   .comp-badge {
-    border: 1px solid var(--border); background: #111215;
+    border: 1px solid var(--border); background: var(--bg-surface);
     padding: 4px 10px; border-radius: 4px; font-size: 10px; font-family: 'JetBrains Mono', monospace;
     color: var(--text-muted); font-weight: 700; display: inline-flex; align-items: center; gap: 6px;
   }
   
   /* Footer */
   footer {
-    background: #09090b;
+    background: var(--bg-base);
     border-top: 1px solid var(--border);
     padding: 36px 32px;
     margin-top: 60px;
@@ -550,6 +598,18 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
     font-family: 'JetBrains Mono', monospace;
   }
 </style>
+<script>
+  (function() {
+    try {
+      var saved = localStorage.getItem('arcafid_theme');
+      if (saved === 'light') {
+        document.documentElement.setAttribute('data-theme', 'light');
+      } else {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      }
+    } catch(e) {}
+  })();
+</script>
 </head>
 <body>
 
@@ -560,7 +620,7 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
       <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
     </div>
     <div class="brand-text">
-      <h1>Aethelgard Quantitative</h1>
+      <h1>ArcaFid Quantitative</h1>
       <p>Systematic Macro & Algorithmic Syndicate</p>
     </div>
   </a>
@@ -574,6 +634,10 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
   </ul>
 
   <div class="nav-right">
+    <div class="theme-switcher" id="themeSwitcher" title="Conmutador de Modo Visual">
+      <button class="theme-btn" id="tbtnLight" onclick="setTheme('light')">☀ LUMINOSO</button>
+      <button class="theme-btn active" id="tbtnDark" onclick="setTheme('dark')">☾ TERMINAL</button>
+    </div>
     <div class="curr-switcher">
       <button class="curr-btn active" id="cUSDT" onclick="setCurrency('USDT')">USDT</button>
       <button class="curr-btn" id="cUSD" onclick="setCurrency('USD')">USD</button>
@@ -590,6 +654,16 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
 <div class="market-sessions-bar">
   <div class="sessions-group">
     <div class="session-pill">
+      <span class="session-dot dot-open" id="binanceDot"></span>
+      <span class="session-name">BINANCE SPOT:</span>
+      <span class="session-state up" id="syncBinanceBadge">24/7 ACTIVO</span>
+    </div>
+    <div class="session-pill">
+      <span class="session-dot dot-open" id="ibkrDot"></span>
+      <span class="session-name">IBKR DMA:</span>
+      <span class="session-state up" id="syncIbkrBadge">FEED ACTIVO (TWS/STANDBY)</span>
+    </div>
+    <div class="session-pill">
       <span class="session-dot dot-open"></span>
       <span class="session-name">NEW YORK (NYSE):</span>
       <span class="session-state up" id="sessNyse">ABIERTO (09:30-16:00 EDT)</span>
@@ -604,14 +678,9 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
       <span class="session-name">TOKIO (TSE):</span>
       <span class="session-state" style="color:var(--text-muted);" id="sessTse">CERRADO</span>
     </div>
-    <div class="session-pill">
-      <span class="session-dot dot-open"></span>
-      <span class="session-name">BINANCE CRIPTO SPOT:</span>
-      <span class="session-state up">24/7 ACTIVO</span>
-    </div>
   </div>
   <div style="display:flex; gap:16px; align-items:center; flex-wrap:wrap;">
-    <div><span class="session-name">HORA UTC:</span> <b style="color:#fff;" id="utcClock">--:--:-- UTC</b></div>
+    <div><span class="session-name">HORA UTC:</span> <b style="color:var(--text-main);" id="utcClock">--:--:-- UTC</b></div>
     <div><span class="badge-tag tag-verified">LATENCIA SOR: &lt; 0.8ms (EQUINIX NY4)</span></div>
   </div>
 </div>
@@ -639,7 +708,7 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
     <div class="block-header">
       <div>
         <div class="block-badge">[BLOQUE 01] · RESUMEN EJECUTIVO & CONSENSO ALPHA</div>
-        <h2 class="block-title">Aethelgard Quantitative Asset Management</h2>
+        <h2 class="block-title">ArcaFid Quantitative Asset Management</h2>
         <p class="block-desc">
           Gestora cuantitativa institucional impulsada por microestructura de mercado, arbitraje estadístico de baja latencia y algoritmos fiduciarios de preservación estricta de capital. Operaciones no-custodiales con conciliación en tiempo real.
         </p>
@@ -687,15 +756,17 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
 
     <!-- Circuit Breakers & Volatility Shield Real-Time Panel -->
     <div class="circuit-breakers-banner">
-      <div style="display:flex; align-items:center; gap:8px;">
+      <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
         <span style="width:7px; height:7px; border-radius:50%; background:var(--green);"></span>
-        <span style="color:#f4f4f5; font-weight:800;">ESCUDO DE RIESGO & CIRCUIT BREAKERS:</span>
+        <span style="color:var(--text-main); font-weight:800;">ESCUDO DE RIESGO & CIRCUIT BREAKERS:</span>
         <span class="badge-tag tag-verified">ARMADOS & ACTIVOS</span>
+        <span class="badge-tag tag-verified" id="telemetryBinance">BINANCE SPOT: 24/7 ACTIVO</span>
+        <span class="badge-tag tag-verified" id="telemetryIbkr">IBKR DMA: FEED ACTIVO (TWS/STANDBY)</span>
       </div>
       <div style="display:flex; gap:16px; align-items:center; flex-wrap:wrap;">
         <div><span style="color:var(--text-dim);">LÍMITE VOLATILIDAD:</span> <b class="up">&lt; 5.0% (15m)</b></div>
         <div><span style="color:var(--text-dim);">NEUTRALIDAD DELTA:</span> <b class="up">99.4%</b></div>
-        <div><span style="color:var(--text-dim);">SLIPPAGE SHIELD:</span> <b style="color:#f4f4f5;">&lt; 0.002%</b></div>
+        <div><span style="color:var(--text-dim);">SLIPPAGE SHIELD:</span> <b style="color:var(--text-main);">&lt; 0.002%</b></div>
         <div><span style="color:var(--text-dim);">KILL-SWITCH:</span> <b class="up">LISTO (ZERO-LOSS HALT)</b></div>
       </div>
     </div>
@@ -705,7 +776,7 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; flex-wrap:wrap; gap:10px;">
         <div>
           <div style="font-size:10px; font-weight:800; text-transform:uppercase; color:var(--text-dim); letter-spacing:1px; font-family:'JetBrains Mono',monospace;">TELEMETRÍA DE AUTO-EVOLUCIÓN CONTINUA & IA ADAPTATIVA</div>
-          <div style="font-size:15px; font-weight:800; color:#f4f4f5; margin-top:2px;">Optimización Estocástica Online & Hugging Face FinBERT</div>
+          <div style="font-size:15px; font-weight:800; color:var(--text-main); margin-top:2px;">Optimización Estocástica Online & Hugging Face FinBERT</div>
         </div>
         <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
           <span class="badge-tag tag-verified" id="hfBadge">HUGGING FACE: ProsusAI/finbert · ACTIVO</span>
@@ -715,27 +786,27 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
 
       <!-- Top Metrics Row -->
       <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:14px; margin-bottom:18px;">
-        <div style="background:#111215; border:1px solid var(--border); border-radius:4px; padding:12px;">
+        <div style="background:var(--bg-surface); border:1px solid var(--border); border-radius:4px; padding:12px;">
           <div style="font-size:10px; color:var(--text-dim); text-transform:uppercase; font-weight:700; font-family:'JetBrains Mono',monospace;">Generación Neuronal</div>
-          <div style="font-size:20px; font-weight:800; color:#f4f4f5; font-family:'JetBrains Mono',monospace; margin-top:2px;" id="dispGen">Gen #48</div>
+          <div style="font-size:20px; font-weight:800; color:var(--text-main); font-family:'JetBrains Mono',monospace; margin-top:2px;" id="dispGen">Gen #48</div>
           <div style="font-size:10px; color:var(--text-muted); margin-top:4px;">1,421 ciclos ejecutados</div>
         </div>
 
-        <div style="background:#111215; border:1px solid var(--border); border-radius:4px; padding:12px;">
+        <div style="background:var(--bg-surface); border:1px solid var(--border); border-radius:4px; padding:12px;">
           <div style="font-size:10px; color:var(--text-dim); text-transform:uppercase; font-weight:700; font-family:'JetBrains Mono',monospace;">Pérdida Adaptativa (Loss)</div>
           <div style="font-size:20px; font-weight:800; color:var(--green); font-family:'JetBrains Mono',monospace; margin-top:2px;" id="dispLoss">0.0380</div>
           <div style="font-size:10px; color:var(--text-muted); margin-top:4px;">Convergencia de gradiente</div>
         </div>
 
-        <div style="background:#111215; border:1px solid var(--border); border-radius:4px; padding:12px;">
+        <div style="background:var(--bg-surface); border:1px solid var(--border); border-radius:4px; padding:12px;">
           <div style="font-size:10px; color:var(--text-dim); text-transform:uppercase; font-weight:700; font-family:'JetBrains Mono',monospace;">Sentimiento Hugging Face</div>
-          <div style="font-size:20px; font-weight:800; color:#f4f4f5; font-family:'JetBrains Mono',monospace; margin-top:2px;" id="dispSent">BULLISH (+0.76)</div>
+          <div style="font-size:20px; font-weight:800; color:var(--text-main); font-family:'JetBrains Mono',monospace; margin-top:2px;" id="dispSent">BULLISH (+0.76)</div>
           <div style="font-size:10px; color:var(--text-muted); margin-top:4px;">ProsusAI/finbert (Conf: 94.1%)</div>
         </div>
 
-        <div style="background:#111215; border:1px solid var(--border); border-radius:4px; padding:12px;">
+        <div style="background:var(--bg-surface); border:1px solid var(--border); border-radius:4px; padding:12px;">
           <div style="font-size:10px; color:var(--text-dim); text-transform:uppercase; font-weight:700; font-family:'JetBrains Mono',monospace;">Detección de Deriva (Drift)</div>
-          <div style="font-size:20px; font-weight:800; color:#f4f4f5; font-family:'JetBrains Mono',monospace; margin-top:2px;">OPTIMAL</div>
+          <div style="font-size:20px; font-weight:800; color:var(--text-main); font-family:'JetBrains Mono',monospace; margin-top:2px;">OPTIMAL</div>
           <div style="font-size:10px; color:var(--text-muted); margin-top:4px;">Score: 0.038 · Sin deriva</div>
         </div>
       </div>
@@ -743,7 +814,7 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
       <!-- Weights Progress Bars -->
       <div style="margin-bottom:18px;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-          <span style="font-size:11px; font-weight:800; text-transform:uppercase; color:#f4f4f5; font-family:'JetBrains Mono',monospace;">Ponderación Dinámica del Consenso Algorítmico (Thompson Sampling)</span>
+          <span style="font-size:11px; font-weight:800; text-transform:uppercase; color:var(--text-main); font-family:'JetBrains Mono',monospace;">Ponderación Dinámica del Consenso Algorítmico (Thompson Sampling)</span>
           <span style="font-size:10px; color:var(--text-muted); font-family:'JetBrains Mono',monospace;">OPTIMIZACIÓN ONLINE BAYESIANA</span>
         </div>
 
@@ -751,10 +822,10 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
           <div>
             <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px; font-family:'JetBrains Mono',monospace;">
               <span>[ALPHA] Microestructura Hawkes L3</span>
-              <b id="lblWHawkes" style="color:#f4f4f5;">35%</b>
+              <b id="lblWHawkes" style="color:var(--text-main);">35%</b>
             </div>
-            <div style="height:5px; background:#111215; border-radius:2px; overflow:hidden; border:1px solid var(--border);">
-              <div id="barWHawkes" style="width:35%; height:100%; background:#f4f4f5; transition:width 0.4s ease;"></div>
+            <div style="height:5px; background:var(--bg-surface); border-radius:2px; overflow:hidden; border:1px solid var(--border);">
+              <div id="barWHawkes" style="width:35%; height:100%; background:var(--text-main); transition:width 0.4s ease;"></div>
             </div>
           </div>
 
@@ -763,7 +834,7 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
               <span>[MOMENTUM] Ruptura & Tendencia Cuantitativa</span>
               <b id="lblWMomentum" style="color:var(--green);">35%</b>
             </div>
-            <div style="height:5px; background:#111215; border-radius:2px; overflow:hidden; border:1px solid var(--border);">
+            <div style="height:5px; background:var(--bg-surface); border-radius:2px; overflow:hidden; border:1px solid var(--border);">
               <div id="barWMomentum" style="width:35%; height:100%; background:var(--green); transition:width 0.4s ease;"></div>
             </div>
           </div>
@@ -771,10 +842,10 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
           <div>
             <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px; font-family:'JetBrains Mono',monospace;">
               <span>[HUGGING FACE] NLP FinBERT Sentiment</span>
-              <b id="lblWSentiment" style="color:#f4f4f5;">20%</b>
+              <b id="lblWSentiment" style="color:var(--text-main);">20%</b>
             </div>
-            <div style="height:5px; background:#111215; border-radius:2px; overflow:hidden; border:1px solid var(--border);">
-              <div id="barWSentiment" style="width:20%; height:100%; background:#a1a1aa; transition:width 0.4s ease;"></div>
+            <div style="height:5px; background:var(--bg-surface); border-radius:2px; overflow:hidden; border:1px solid var(--border);">
+              <div id="barWSentiment" style="width:20%; height:100%; background:var(--text-muted); transition:width 0.4s ease;"></div>
             </div>
           </div>
 
@@ -783,8 +854,8 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
               <span>[MEAN REV] Bandas de Dispersión Bollinger</span>
               <b id="lblWMeanRev" style="color:var(--text-muted);">10%</b>
             </div>
-            <div style="height:5px; background:#111215; border-radius:2px; overflow:hidden; border:1px solid var(--border);">
-              <div id="barWMeanRev" style="width:10%; height:100%; background:#71717a; transition:width 0.4s ease;"></div>
+            <div style="height:5px; background:var(--bg-surface); border-radius:2px; overflow:hidden; border:1px solid var(--border);">
+              <div id="barWMeanRev" style="width:10%; height:100%; background:var(--text-dim); transition:width 0.4s ease;"></div>
             </div>
           </div>
         </div>
@@ -793,7 +864,7 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
       <!-- Self-Optimization Interactive Trigger -->
       <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; padding-top:14px; border-top:1px solid var(--border);">
         <div style="font-size:11px; color:var(--text-muted); font-family:'JetBrains Mono',monospace;">
-          Parámetros Auto-Calibrados: ATR Stop: <b id="dispAtr" style="color:#fff;">1.80x</b> · Umbral Confianza: <b id="dispConf" style="color:#fff;">72.0%</b>
+          Parámetros Auto-Calibrados: ATR Stop: <b id="dispAtr" style="color:var(--text-main);">1.80x</b> · Umbral Confianza: <b id="dispConf" style="color:var(--text-main);">72.0%</b>
         </div>
         <button class="btn btn-primary" id="btnTrainStep" onclick="triggerAutoEvolutionStep()">
           Ejecutar Ciclo de Auto-Optimización RL en Vivo
@@ -886,8 +957,8 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
             </div>
           </div>
 
-          <div style="background:#111215; border:1px solid var(--border); border-radius:3px; padding:6px 10px; display:flex; justify-content:space-between; align-items:center; font-family:'JetBrains Mono',monospace; font-size:11px; margin-bottom:12px;">
-            <div><span style="color:var(--text-dim);">PRECIO MEDIO:</span> <b style="color:#fff;" id="midPriceDisplay">$60,520.10</b></div>
+          <div style="background:var(--bg-surface); border:1px solid var(--border); border-radius:3px; padding:6px 10px; display:flex; justify-content:space-between; align-items:center; font-family:'JetBrains Mono',monospace; font-size:11px; margin-bottom:12px;">
+            <div><span style="color:var(--text-dim);">PRECIO MEDIO:</span> <b style="color:var(--text-main);" id="midPriceDisplay">$60,520.10</b></div>
             <div><span class="badge-tag tag-verified" style="font-size:9px;">SPREAD: 0.16 BPS</span></div>
           </div>
 
@@ -898,23 +969,19 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
             <div id="obBids">
               <div class="ob-row ob-buy">
                 <span class="up">60,519.80</span><span>1.250</span><span>1.250 BTC</span>
-                <div class="ob-depth-bar" style="width: 15%;"></div>
+                <div class="ob-depth-bar" style="width: 25%;"></div>
               </div>
               <div class="ob-row ob-buy">
-                <span class="up">60,519.00</span><span>2.480</span><span>3.730 BTC</span>
-                <div class="ob-depth-bar" style="width: 32%;"></div>
+                <span class="up">60,519.20</span><span>2.100</span><span>3.350 BTC</span>
+                <div class="ob-depth-bar" style="width: 45%;"></div>
               </div>
               <div class="ob-row ob-buy">
-                <span class="up">60,517.50</span><span>3.820</span><span>7.550 BTC</span>
-                <div class="ob-depth-bar" style="width: 55%;"></div>
+                <span class="up">60,518.50</span><span>3.450</span><span>6.800 BTC</span>
+                <div class="ob-depth-bar" style="width: 70%;"></div>
               </div>
               <div class="ob-row ob-buy">
-                <span class="up">60,516.20</span><span>2.910</span><span>10.460 BTC</span>
-                <div class="ob-depth-bar" style="width: 72%;"></div>
-              </div>
-              <div class="ob-row ob-buy">
-                <span class="up">60,514.90</span><span>4.120</span><span>14.580 BTC</span>
-                <div class="ob-depth-bar" style="width: 90%;"></div>
+                <span class="up">60,518.00</span><span>5.200</span><span>12.000 BTC</span>
+                <div class="ob-depth-bar" style="width: 95%;"></div>
               </div>
             </div>
           </div>
@@ -922,61 +989,22 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
 
         <div class="time-sales-wrap">
           <div class="ob-title">
-            <span>Flujo de Ejecuciones Institucionales (Time & Sales)</span>
-            <span class="badge-tag tag-live" style="font-size:9px;">EN VIVO</span>
+            <span>CINTA EN TIEMPO REAL (TIME & SALES)</span>
+            <span class="badge-tag tag-live" style="font-size:8px;">STREAM SOR</span>
           </div>
           <table class="ts-table">
             <thead>
               <tr>
-                <th>Timestamp</th>
-                <th>Activo</th>
-                <th>Sentido</th>
-                <th>Precio</th>
-                <th>Volumen</th>
-                <th>Ruta</th>
+                <th>Hora</th><th>Lado</th><th>Precio</th><th>Volumen</th>
               </tr>
             </thead>
             <tbody id="tsBody">
-              <tr>
-                <td>15:54:12.842</td>
-                <td><b>BTC/USDT</b></td>
-                <td><span class="up">BUY</span></td>
-                <td>$60,520.60</td>
-                <td>0.450 BTC</td>
-                <td><span class="badge-tag tag-verified" style="font-size:8px;">BINANCE L2</span></td>
-              </tr>
-              <tr>
-                <td>15:54:11.210</td>
-                <td><b>SOL/USDT</b></td>
-                <td><span class="up">BUY</span></td>
-                <td>$148.80</td>
-                <td>42.00 SOL</td>
-                <td><span class="badge-tag tag-verified" style="font-size:8px;">BINANCE L2</span></td>
-              </tr>
-              <tr>
-                <td>15:54:09.912</td>
-                <td><b>NVDA</b></td>
-                <td><span class="up">BUY</span></td>
-                <td>$128.50</td>
-                <td>50 ACC</td>
-                <td><span class="badge-tag tag-audited" style="font-size:8px;">IBKR TWS</span></td>
-              </tr>
-              <tr>
-                <td>15:54:06.404</td>
-                <td><b>ETH/USDT</b></td>
-                <td><span class="down">SELL</span></td>
-                <td>$2,640.20</td>
-                <td>3.150 ETH</td>
-                <td><span class="badge-tag tag-verified" style="font-size:8px;">BINANCE L2</span></td>
-              </tr>
-              <tr>
-                <td>15:54:02.115</td>
-                <td><b>BTC/USDT</b></td>
-                <td><span class="up">BUY</span></td>
-                <td>$60,519.80</td>
-                <td>0.820 BTC</td>
-                <td><span class="badge-tag tag-verified" style="font-size:8px;">BINANCE L2</span></td>
-              </tr>
+              <tr><td>14:32:01</td><td class="up">BUY</td><td>$60,520.20</td><td>0.145 BTC</td></tr>
+              <tr><td>14:32:00</td><td class="down">SELL</td><td>$60,520.00</td><td>0.082 BTC</td></tr>
+              <tr><td>14:31:58</td><td class="up">BUY</td><td>$60,520.40</td><td>1.250 BTC</td></tr>
+              <tr><td>14:31:55</td><td class="down">SELL</td><td>$60,519.80</td><td>0.510 BTC</td></tr>
+              <tr><td>14:31:52</td><td class="up">BUY</td><td>$60,520.10</td><td>0.320 BTC</td></tr>
+              <tr><td>14:31:48</td><td class="up">BUY</td><td>$60,520.30</td><td>0.940 BTC</td></tr>
             </tbody>
           </table>
         </div>
@@ -991,75 +1019,75 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
     <div class="block-header">
       <div>
         <div class="block-badge">[BLOQUE 02] · RENDIMIENTO HISTÓRICO & MATRIZ DE RIESGO</div>
-        <h2 class="block-title">Curva de Retorno Auditada & Cerrojo Fiduciario</h2>
+        <h2 class="block-title">Rendimiento Histórico & Preservación</h2>
         <p class="block-desc">
-          Evolución patrimonial de alta fidelidad frente al índice de referencia S&P 500, control de drawdown histórico con cerrojo fiduciario en -6.4% y matriz mensual auditada.
+          Evolución del Valor Liquidativo Neto (NAV) auditado frente al S&P 500 (SPY). Incorpora cerrojo de Drawdown fiduciario incondicional.
         </p>
       </div>
-      <div class="tf-group">
-        <button class="tf-btn" onclick="setTimeframe('1M')">1M</button>
-        <button class="tf-btn" onclick="setTimeframe('3M')">3M</button>
-        <button class="tf-btn" onclick="setTimeframe('6M')">6M</button>
-        <button class="tf-btn active" onclick="setTimeframe('1Y')">1Y</button>
-        <button class="tf-btn" onclick="setTimeframe('YTD')">YTD</button>
-        <button class="tf-btn" onclick="setTimeframe('ALL')">ALL</button>
+      <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+        <span style="font-size:12px; font-weight:700; color:var(--text-muted); font-family:'JetBrains Mono',monospace;">NAV AUDITADO:</span>
+        <span style="font-size:18px; font-weight:800; color:var(--green); font-family:'JetBrains Mono',monospace;" id="chartNavDisplay">$1,842.50 (+84.25%)</span>
       </div>
     </div>
 
-    <!-- Wide Dedicated Canvas Chart Container -->
+    <!-- Dual Pane Equity Curve & Drawdown Chart Box -->
     <div class="chart-box">
       <div class="chart-header">
         <div>
-          <div class="chart-title">Curva de Rendimiento Auditada vs Benchmark S&P 500</div>
-          <div style="font-size:10px; color:var(--text-dim); margin-top:2px;">Cifras netas tras comisión de éxito (High-Water Mark fiduciario).</div>
+          <div class="chart-title">Curva de Capital Cuantitativa vs Benchmark S&P 500</div>
+          <div style="font-size:10px; color:var(--text-muted); font-family:'JetBrains Mono',monospace; margin-top:2px;">
+            Intervalo Diario · Conciliación Diaria Automatizada
+          </div>
         </div>
-        <div style="display:flex; gap:16px; align-items:center; font-family:'JetBrains Mono',monospace; font-size:11px;">
-          <div><span style="color:var(--text-dim);">NAV ACUMULADO:</span> <b style="color:#fff;" id="chartNavDisplay">$1,842.50 USD (+84.25%)</b></div>
-          <div><span style="color:var(--text-dim);">SPY:</span> <span class="up">+16.40%</span></div>
-          <div><span style="color:var(--text-dim);">ALPHA NETO:</span> <span class="up" style="font-weight:800;">+67.85%</span></div>
+        <div class="tf-group">
+          <button class="tf-btn" onclick="setTimeframe('1M')">1M</button>
+          <button class="tf-btn" onclick="setTimeframe('3M')">3M</button>
+          <button class="tf-btn" onclick="setTimeframe('6M')">6M</button>
+          <button class="tf-btn active" onclick="setTimeframe('1Y')">1Y</button>
+          <button class="tf-btn" onclick="setTimeframe('ALL')">ALL</button>
         </div>
       </div>
 
       <div style="position:relative; width:100%; height:380px;">
         <canvas id="equityChart" width="1280" height="380" style="width:100%; height:100%; display:block; cursor:crosshair;"></canvas>
-        <div id="chartTooltip" style="display:none; position:absolute; pointer-events:none; background:#111215; border:1px solid var(--border-light); border-radius:4px; padding:8px 12px; font-family:'JetBrains Mono',monospace; font-size:10px; z-index:20;"></div>
+        <div id="chartTooltip" style="display:none; position:absolute; pointer-events:none; background:var(--bg-surface); border:1px solid var(--border-light); border-radius:4px; padding:8px 12px; font-family:'JetBrains Mono',monospace; font-size:10px; z-index:20;"></div>
       </div>
     </div>
 
     <!-- Portfolio Asset Allocation & Quantitative Risk Telemetry -->
     <div class="alloc-grid" id="allocation">
       <div class="alloc-card">
-        <div style="font-size:11px; font-weight:800; text-transform:uppercase; color:#fff; display:flex; justify-content:space-between; font-family:'JetBrains Mono',monospace;">
+        <div style="font-size:11px; font-weight:800; text-transform:uppercase; color:var(--text-main); display:flex; justify-content:space-between; font-family:'JetBrains Mono',monospace;">
           <span>Diversificación Multiactivo Ponderada</span>
           <span style="color:var(--text-muted);">NAV DIVERSIFICADO</span>
         </div>
 
         <div class="alloc-bar-multi">
-          <div class="bar-seg" style="width: 40%; background: #f4f4f5;" title="40% Cripto Spot Core"></div>
-          <div class="bar-seg" style="width: 25%; background: #10b981;" title="25% Arbitraje Estadístico"></div>
-          <div class="bar-seg" style="width: 20%; background: #a1a1aa;" title="20% Cobertura Líquida USDT"></div>
-          <div class="bar-seg" style="width: 15%; background: #52525b;" title="15% Acciones S&P 500 (IBKR)"></div>
+          <div class="bar-seg" style="width: 40%; background: var(--text-main);" title="40% Cripto Spot Core"></div>
+          <div class="bar-seg" style="width: 25%; background: var(--green);" title="25% Arbitraje Estadístico"></div>
+          <div class="bar-seg" style="width: 20%; background: var(--text-muted);" title="20% Cobertura Líquida USDT"></div>
+          <div class="bar-seg" style="width: 15%; background: var(--text-dim);" title="15% Acciones S&P 500 (IBKR)"></div>
         </div>
 
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; font-family:'JetBrains Mono',monospace; font-size:11px;">
-          <div style="background:#111215; padding:10px; border-radius:3px; border-left:2px solid #f4f4f5;">
+          <div style="background:var(--bg-surface); padding:10px; border-radius:3px; border-left:2px solid var(--text-main);">
             <div style="color:var(--text-dim); font-size:9px; text-transform:uppercase;">40% · SPOT CORE</div>
-            <div style="font-weight:700; color:#fff; margin-top:2px;">BTC & ETH (Spot)</div>
+            <div style="font-weight:700; color:var(--text-main); margin-top:2px;">BTC & ETH (Spot)</div>
             <div style="color:var(--text-muted); font-size:10px;">Preservación fiduciaria</div>
           </div>
-          <div style="background:#111215; padding:10px; border-radius:3px; border-left:2px solid #10b981;">
+          <div style="background:var(--bg-surface); padding:10px; border-radius:3px; border-left:2px solid var(--green);">
             <div style="color:var(--text-dim); font-size:9px; text-transform:uppercase;">25% · ARBITRAJE</div>
-            <div style="font-weight:700; color:#fff; margin-top:2px;">Altcoins Gran Liquidez</div>
+            <div style="font-weight:700; color:var(--text-main); margin-top:2px;">Altcoins Gran Liquidez</div>
             <div style="color:var(--text-muted); font-size:10px;">Captura volatilidad</div>
           </div>
-          <div style="background:#111215; padding:10px; border-radius:3px; border-left:2px solid #a1a1aa;">
+          <div style="background:var(--bg-surface); padding:10px; border-radius:3px; border-left:2px solid var(--text-muted);">
             <div style="color:var(--text-dim); font-size:9px; text-transform:uppercase;">20% · RESERVA USDT</div>
-            <div style="font-weight:700; color:#fff; margin-top:2px;">Cash & Earn Buffer</div>
+            <div style="font-weight:700; color:var(--text-main); margin-top:2px;">Cash & Earn Buffer</div>
             <div style="color:var(--text-muted); font-size:10px;">Mitigación colapso</div>
           </div>
-          <div style="background:#111215; padding:10px; border-radius:3px; border-left:2px solid #52525b;">
+          <div style="background:var(--bg-surface); padding:10px; border-radius:3px; border-left:2px solid var(--text-dim);">
             <div style="color:var(--text-dim); font-size:9px; text-transform:uppercase;">15% · S&P 500 IBKR</div>
-            <div style="font-weight:700; color:#fff; margin-top:2px;">NVDA, AAPL, SPY</div>
+            <div style="font-weight:700; color:var(--text-main); margin-top:2px;">NVDA, AAPL, SPY</div>
             <div style="color:var(--text-muted); font-size:10px;">Descorrelación macro</div>
           </div>
         </div>
@@ -1118,23 +1146,23 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
             <th>Año</th>
             <th>Ene</th><th>Feb</th><th>Mar</th><th>Abr</th><th>May</th><th>Jun</th>
             <th>Jul</th><th>Ago</th><th>Sep</th><th>Oct</th><th>Nov</th><th>Dic</th>
-            <th style="background:#111215; color:#fff;">YTD Total</th>
+            <th style="background:var(--bg-surface); color:var(--text-main);">YTD Total</th>
           </tr>
         </thead>
         <tbody>
           <tr>
-            <td style="font-weight:700; color:#fff;">2026</td>
+            <td style="font-weight:700; color:var(--text-main);">2026</td>
             <td class="heat-win">+4.8%</td><td class="heat-win-deep">+7.2%</td><td class="heat-win">+5.1%</td><td class="heat-win">+6.4%</td>
             <td class="heat-win-deep">+8.1%</td><td class="heat-win">+4.9%</td><td class="heat-win">+5.8%</td><td class="heat-win">+6.3%</td>
             <td class="heat-win-deep" id="currMonthRet">+5.2%</td><td class="heat-neutral">—</td><td class="heat-neutral">—</td><td class="heat-neutral">—</td>
-            <td style="font-weight:800; color:var(--green); background:#111215;">+67.8%</td>
+            <td style="font-weight:800; color:var(--green); background:var(--bg-surface);">+67.8%</td>
           </tr>
           <tr>
-            <td style="font-weight:700; color:#fff;">2025</td>
+            <td style="font-weight:700; color:var(--text-main);">2025</td>
             <td class="heat-win">+3.9%</td><td class="heat-win">+4.5%</td><td class="heat-win-deep">+8.4%</td><td class="heat-win">+5.2%</td>
             <td class="heat-win">+6.1%</td><td class="heat-win-deep">+7.9%</td><td class="heat-win">+4.3%</td><td class="heat-win">+5.5%</td>
             <td class="heat-win">+6.8%</td><td class="heat-win">+7.4%</td><td class="heat-win">+5.9%</td><td class="heat-win-deep">+8.6%</td>
-            <td style="font-weight:800; color:var(--green); background:#111215;">+106.3%</td>
+            <td style="font-weight:800; color:var(--green); background:var(--bg-surface);">+106.3%</td>
           </tr>
         </tbody>
       </table>
@@ -1161,7 +1189,7 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
         <div style="margin-bottom:20px;">
           <div style="display:flex; justify-content:space-between; font-size:11px; font-weight:700; text-transform:uppercase; margin-bottom:6px;">
             <span>Capital a Asignar:</span>
-            <span style="color:#f4f4f5; font-family:'JetBrains Mono',monospace;" id="lblCap">$5,000 USDT</span>
+            <span style="color:var(--text-main); font-family:'JetBrains Mono',monospace;" id="lblCap">$5,000 USDT</span>
           </div>
           <input type="range" class="slider-bar" id="slCap" min="500" max="100000" step="500" value="5000" oninput="runSim()" style="width:100%; height:4px; border-radius:2px; background:var(--border-light); outline:none; -webkit-appearance:none; cursor:pointer;">
         </div>
@@ -1169,7 +1197,7 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
         <div style="margin-bottom:20px;">
           <div style="display:flex; justify-content:space-between; font-size:11px; font-weight:700; text-transform:uppercase; margin-bottom:6px;">
             <span>Horizonte Temporal:</span>
-            <span style="color:#f4f4f5; font-family:'JetBrains Mono',monospace;" id="lblTime">12 Meses</span>
+            <span style="color:var(--text-main); font-family:'JetBrains Mono',monospace;" id="lblTime">12 Meses</span>
           </div>
           <input type="range" class="slider-bar" id="slTime" min="3" max="36" step="3" value="12" oninput="runSim()" style="width:100%; height:4px; border-radius:2px; background:var(--border-light); outline:none; -webkit-appearance:none; cursor:pointer;">
         </div>
@@ -1183,16 +1211,16 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
         </div>
 
         <!-- Fiduciary Fee Transparency Box -->
-        <div style="background:#111215; border:1px solid var(--border); border-radius:4px; padding:12px 14px; font-family:'JetBrains Mono',monospace; font-size:10px;">
-          <div style="color:#f4f4f5; font-weight:800; margin-bottom:4px; text-transform:uppercase;">POLÍTICA DE COMISIONES TRANSPARENTE:</div>
+        <div style="background:var(--bg-surface); border:1px solid var(--border); border-radius:4px; padding:12px 14px; font-family:'JetBrains Mono',monospace; font-size:10px;">
+          <div style="color:var(--text-main); font-weight:800; margin-bottom:4px; text-transform:uppercase;">POLÍTICA DE COMISIONES TRANSPARENTE:</div>
           <div style="display:flex; justify-content:space-between; color:var(--text-muted); margin-bottom:2px;">
             <span>Comisión Fija de Gestión:</span><b style="color:var(--green);">0.0% (CERO COSTOS OCULTOS)</b>
           </div>
           <div style="display:flex; justify-content:space-between; color:var(--text-muted); margin-bottom:2px;">
-            <span>Hurdle Rate Anual:</span><b style="color:#fff;">5.0% Rendimiento Base Garantizado</b>
+            <span>Hurdle Rate Anual:</span><b style="color:var(--text-main);">5.0% Rendimiento Base Garantizado</b>
           </div>
           <div style="display:flex; justify-content:space-between; color:var(--text-muted);">
-            <span>Comisión de Éxito:</span><b style="color:#fff;">20% High-Water Mark (Solo si ganas)</b>
+            <span>Comisión de Éxito:</span><b style="color:var(--text-main);">20% High-Water Mark (Solo si ganas)</b>
           </div>
         </div>
       </div>
@@ -1478,12 +1506,12 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
 
 <!-- Footer -->
 <footer>
-  <p><b>AETHELGARD QUANTITATIVE ASSET MANAGEMENT</b> · Systematic Macro & High-Frequency Multi-Asset Division.</p>
+  <p><b>ARCAFID QUANTITATIVE ASSET MANAGEMENT</b> · Systematic Macro & High-Frequency Multi-Asset Division.</p>
   <p style="max-width:750px; margin:8px auto; color:var(--text-dim);">
     Declaración Regulatoria: El rendimiento pasado es un referente estadístico y no constituye una garantía de retornos futuros. Todas las operaciones se rigen bajo contratos de gestión de riesgo algorítmico, separación patrimonial y cerrojos de volatilidad (Circuit Breakers).
   </p>
   <p style="margin-top:10px;">
-    Mesa Cuantitativa: <a href="https://t.me/AdminVIPSignals" target="_blank" style="color:#f4f4f5;">@AdminVIPSignals</a> · Infraestructura: Conexión Híbrida Binance API / Interactive Brokers Gateway
+    Mesa Cuantitativa: <a href="https://t.me/AdminVIPSignals" target="_blank" style="color:var(--text-main);">@AdminVIPSignals</a> · Infraestructura: Conexión Híbrida Binance API / Interactive Brokers Gateway
   </p>
 </footer>
 
@@ -1491,43 +1519,43 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
 <div class="modal-shade" id="portfolioModal">
   <div class="modal-dialog">
     <button class="modal-x" onclick="closeModal('portfolioModal')">[X]</button>
-    <h3 style="font-size:14px; font-weight:800; text-transform:uppercase; margin-bottom:6px; color:#fff; font-family:'JetBrains Mono',monospace;">Área Privada de Inversor · Consulta de Cartera</h3>
+    <h3 style="font-size:14px; font-weight:800; text-transform:uppercase; margin-bottom:6px; color:var(--text-main); font-family:'JetBrains Mono',monospace;">Área Privada de Inversor · Consulta de Cartera</h3>
     <p style="font-size:11px; color:var(--text-muted); margin-bottom:14px;">
       Ingresa tu correo institucional para verificar tu balance, posiciones abiertas y estado de cuenta.
     </p>
 
     <label class="input-label">Correo del Inversor:</label>
     <div style="display:flex; gap:8px; margin-bottom:16px;">
-      <input type="email" class="ctrl-input" id="portEmail" placeholder="inversor@ejemplo.com" style="margin-bottom:0;" value="inversor@aethelgard.com">
+      <input type="email" class="ctrl-input" id="portEmail" placeholder="inversor@ejemplo.com" style="margin-bottom:0;" value="inversor@arcafid.com">
       <button class="btn btn-primary" onclick="loadInvestorPortfolio()">Consultar</button>
     </div>
 
-    <div id="portResult" style="display:none; background:#09090b; border:1px solid var(--border); border-radius:4px; padding:14px; margin-bottom:14px;">
+    <div id="portResult" style="display:none; background:var(--bg-base); border:1px solid var(--border); border-radius:4px; padding:14px; margin-bottom:14px;">
       <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:8px; margin-bottom:10px;">
         <div>
           <span style="font-size:10px; color:var(--text-dim); text-transform:uppercase;">Titular:</span>
-          <div style="font-size:13px; font-weight:700; color:#fff;" id="portName">Alejandro Dupont</div>
+          <div style="font-size:13px; font-weight:700; color:var(--text-main);" id="portName">Alejandro Dupont</div>
         </div>
         <span class="badge-tag tag-verified" id="portStatus">VERIFICADO / ACTIVO</span>
       </div>
 
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px;">
-        <div style="background:#111215; padding:10px; border-radius:3px; border:1px solid var(--border);">
+        <div style="background:var(--bg-surface); padding:10px; border-radius:3px; border:1px solid var(--border);">
           <div style="font-size:10px; color:var(--text-dim); text-transform:uppercase;">Patrimonio Actual (NAV)</div>
-          <div style="font-size:18px; font-weight:800; color:#fff; font-family:'JetBrains Mono',monospace;" id="portNav">$5,782.50</div>
+          <div style="font-size:18px; font-weight:800; color:var(--text-main); font-family:'JetBrains Mono',monospace;" id="portNav">$5,782.50</div>
         </div>
-        <div style="background:#111215; padding:10px; border-radius:3px; border:1px solid var(--border);">
+        <div style="background:var(--bg-surface); padding:10px; border-radius:3px; border:1px solid var(--border);">
           <div style="font-size:10px; color:var(--text-dim); text-transform:uppercase;">Ganancia Neta Realizada</div>
           <div style="font-size:18px; font-weight:800; color:var(--green); font-family:'JetBrains Mono',monospace;" id="portPnl">+$782.50 (+15.6%)</div>
         </div>
       </div>
 
       <div style="font-size:11px; font-weight:700; text-transform:uppercase; color:var(--text-dim); margin-bottom:6px;">Asignaciones Activas en Ejecución:</div>
-      <ul style="list-style:none; font-size:11px; font-family:'JetBrains Mono',monospace; color:#cbd5e1; margin-bottom:14px;">
-        <li style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid rgba(255,255,255,0.04);">
+      <ul style="list-style:none; font-size:11px; font-family:'JetBrains Mono',monospace; color:var(--text-main); margin-bottom:14px;">
+        <li style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid var(--border);">
           <span>SOL/USDT Spot Momentum</span> <span class="up">+$85.40 (+6.0%)</span>
         </li>
-        <li style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid rgba(255,255,255,0.04);">
+        <li style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid var(--border);">
           <span>NVDA Equity (IBKR Gateway)</span> <span class="up">+$54.00 (+4.4%)</span>
         </li>
         <li style="display:flex; justify-content:space-between; padding:4px 0;">
@@ -1547,7 +1575,7 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
 <div class="modal-shade" id="withdrawModal">
   <div class="modal-dialog">
     <button class="modal-x" onclick="closeModal('withdrawModal')">[X]</button>
-    <h3 style="font-size:14px; font-weight:800; text-transform:uppercase; margin-bottom:6px; color:#fff; font-family:'JetBrains Mono',monospace;">Solicitud de Liquidación / Retiro de Fondos</h3>
+    <h3 style="font-size:14px; font-weight:800; text-transform:uppercase; margin-bottom:6px; color:var(--text-main); font-family:'JetBrains Mono',monospace;">Solicitud de Liquidación / Retiro de Fondos</h3>
     <p style="font-size:11px; color:var(--text-muted); margin-bottom:14px;">
       Los retiros se ejecutan en USDT (TRC20/BEP20) o transferencia bancaria en un plazo máximo garantizado de 24 horas hábiles.
     </p>
@@ -1578,8 +1606,8 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
 <div class="modal-shade" id="depModal">
   <div class="modal-dialog">
     <button class="modal-x" onclick="closeModal('depModal')">[X]</button>
-    <h3 style="font-size:14px; font-weight:800; text-transform:uppercase; margin-bottom:4px; color:#fff; font-family:'JetBrains Mono',monospace;">Apertura de Asignación Cuantitativa</h3>
-    <div style="background:#09090b; border:1px solid var(--border); border-radius:3px; padding:10px 12px; margin-bottom:14px; font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-muted);">
+    <h3 style="font-size:14px; font-weight:800; text-transform:uppercase; margin-bottom:4px; color:var(--text-main); font-family:'JetBrains Mono',monospace;">Apertura de Asignación Cuantitativa</h3>
+    <div style="background:var(--bg-base); border:1px solid var(--border); border-radius:3px; padding:10px 12px; margin-bottom:14px; font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-muted);">
       [ASIGNACIÓN INSTITUCIONAL · PROTOCOLO FIDUCIARIO SEGREGADO]
     </div>
     <p style="font-size:11px; color:var(--text-muted); margin-bottom:14px;">
@@ -1599,7 +1627,7 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
     <label class="input-label">Correo Institucional (Para envío de extractos):</label>
     <input type="email" class="ctrl-input" id="inEmail" placeholder="andres@valenzuelacapital.com">
 
-    <div style="background:#09090b; border:1px solid var(--border); border-radius:4px; padding:12px; margin-bottom:12px;">
+    <div style="background:var(--bg-base); border:1px solid var(--border); border-radius:4px; padding:12px; margin-bottom:12px;">
       <div style="display:flex; justify-content:space-between; align-items:center;">
         <span style="font-size:10px; color:var(--text-dim); text-transform:uppercase; font-weight:700;">Dirección de Custodia Oficial (USDT):</span>
         <button class="btn btn-outline" style="font-size:9px; padding:2px 6px;" onclick="copyWallet()">Copiar</button>
@@ -1607,7 +1635,7 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
       <code style="display:block; color:var(--green); font-size:11px; margin:6px 0; word-break:break-all;" id="wAddr">TYDzsYocNCWiSCxZ5B29Y5c26q9wR18W3X</code>
       <div style="display:flex; justify-content:space-between; font-size:10px; color:var(--text-dim);">
         <span>Redes: <b>TRC-20</b> & <b>BEP-20</b></span>
-        <a href="https://tronscan.org/#/address/TYDzsYocNCWiSCxZ5B29Y5c26q9wR18W3X" target="_blank" style="color:#f4f4f5; text-decoration:none;">Verificar en Tronscan ↗</a>
+        <a href="https://tronscan.org/#/address/TYDzsYocNCWiSCxZ5B29Y5c26q9wR18W3X" target="_blank" style="color:var(--text-main); text-decoration:none;">Verificar en Tronscan ↗</a>
       </div>
     </div>
 
@@ -1624,8 +1652,8 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
 <div class="modal-shade" id="apiModal">
   <div class="modal-dialog">
     <button class="modal-x" onclick="closeModal('apiModal')">[X]</button>
-    <h3 style="font-size:14px; font-weight:800; text-transform:uppercase; margin-bottom:4px; color:#fff; font-family:'JetBrains Mono',monospace;">Enlace No Custodial vía API Key</h3>
-    <div style="background:#09090b; border:1px solid var(--border); border-radius:3px; padding:10px 12px; margin-bottom:14px; font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-muted);">
+    <h3 style="font-size:14px; font-weight:800; text-transform:uppercase; margin-bottom:4px; color:var(--text-main); font-family:'JetBrains Mono',monospace;">Enlace No Custodial vía API Key</h3>
+    <div style="background:var(--bg-base); border:1px solid var(--border); border-radius:3px; padding:10px 12px; margin-bottom:14px; font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-muted);">
       [ENLACE NO CUSTODIAL · CIFRADO AES-256 EN REPOSO PBKDF2]
     </div>
     
@@ -1662,6 +1690,42 @@ INSTITUTIONAL_PORTAL_HTML = r"""<html lang="es">
 </div>
 
 <script>
+// Visual Theme Switcher Controller
+const THEME_STORAGE_KEY = 'arcafid_theme';
+
+function setTheme(theme) {
+  const isLight = (theme === 'light');
+  document.documentElement.setAttribute('data-theme', isLight ? 'light' : 'dark');
+  if (document.body) {
+    document.body.classList.toggle('theme-light', isLight);
+    document.body.classList.toggle('theme-dark', !isLight);
+  }
+
+  const btnLight = document.getElementById('tbtnLight');
+  const btnDark = document.getElementById('tbtnDark');
+  if (btnLight && btnDark) {
+    btnLight.classList.toggle('active', isLight);
+    btnDark.classList.toggle('active', !isLight);
+  }
+
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, isLight ? 'light' : 'dark');
+  } catch(e) {}
+
+  if (typeof drawChart === 'function') {
+    drawChart();
+  }
+}
+
+function initTheme() {
+  let activeTheme = 'dark';
+  try {
+    const saved = localStorage.getItem(THEME_STORAGE_KEY);
+    if (saved === 'light') activeTheme = 'light';
+  } catch(e) {}
+  setTheme(activeTheme);
+}
+
 // Multicurrency engine & rates
 const fxRates = { 'USDT': 1.0, 'USD': 1.0, 'EUR': 0.92, 'BTC': 0.0000165 };
 const fxSymbols = { 'USDT': '$', 'USD': '$', 'EUR': '€', 'BTC': '₿' };
@@ -1764,7 +1828,7 @@ async function submitWithdrawal() {
   const amt = parseFloat(document.getElementById('wthAmount').value);
   const net = document.getElementById('wthNet').value;
   const addr = document.getElementById('wthAddr').value.trim();
-  const email = (document.getElementById('portEmail') ? document.getElementById('portEmail').value.trim() : '') || "investor@aethelgard.com";
+  const email = (document.getElementById('portEmail') ? document.getElementById('portEmail').value.trim() : '') || "investor@arcafid.com";
   const code2fa = document.getElementById('wth2fa').value.trim();
 
   if (!amt || amt < 50) { alert("El monto mínimo de liquidación es $50 USD."); return; }
@@ -1852,10 +1916,10 @@ function exportClientBlob(type) {
       "AQC-8824,2026-09-10T20:10:00Z,ETH/USDT,OrderBook Microstructure,BUY,2580.00,2670.00,7500.00,+350.00,+3.48%,0x9f0b5512ff3401ab"
     ].join('\n');
     mimeType = 'text/csv;charset=utf-8;';
-    filename = 'Libro_Mayor_Auditoria_Aethelgard.csv';
+    filename = 'arcafid_ledger.csv'; // Compatibility: Libro_Mayor_Auditoria_Aethelgard.csv
   } else if (type === 'json') {
     const report = {
-      syndicate: "Aethelgard Quantitative Asset Management",
+      syndicate: "ArcaFid Quantitative Asset Management",
       generated_at: new Date().toISOString(),
       fiduciary_standard: "Pure Mathematical Discretion & Multi-Broker DMA",
       telemetry: {
@@ -1880,12 +1944,12 @@ function exportClientBlob(type) {
     };
     content = JSON.stringify(report, null, 2);
     mimeType = 'application/json;charset=utf-8;';
-    filename = 'Auditoria_Aethelgard.json';
+    filename = 'arcafid_ledger.json'; // Compatibility: Auditoria_Aethelgard.json
   } else if (type === 'pdf') {
     const pdfMinimal = "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R/Resources<<>>>>endobj\nxref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n0000000052 00000 n \n0000000101 00000 n \ntrailer<</Size 4/Root 1 0 R>>\nstartxref\n178\n%%EOF";
     content = pdfMinimal;
     mimeType = 'application/pdf';
-    filename = 'Certificado_Auditoria_Aethelgard.pdf';
+    filename = 'ARCAFID_QUANTITATIVE_AUDIT.pdf'; // Compatibility: Certificado_Auditoria_Aethelgard.pdf
   }
 
   const blob = new Blob([content], { type: mimeType });
@@ -1901,13 +1965,13 @@ function exportClientBlob(type) {
 
 async function downloadPdf() {
   try {
-    const res = await fetch('/api/investor/report-pdf?email=investor@aethelgard.com');
+    const res = await fetch('/api/investor/report-pdf?email=investor@arcafid.com');
     if (!res.ok) throw new Error("Offline mode");
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'Certificado_Auditoria_Aethelgard.pdf';
+    a.download = 'ARCAFID_QUANTITATIVE_AUDIT.pdf'; // Alias: Certificado_Auditoria_ArcaFid.pdf
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1926,7 +1990,7 @@ async function exportAudit(type) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = type === 'csv' ? 'Libro_Mayor_Auditoria_Aethelgard.csv' : 'Auditoria_Aethelgard.json';
+    a.download = type === 'csv' ? 'arcafid_ledger.csv' : 'arcafid_ledger.json'; // Alias: Libro_Mayor_Auditoria_ArcaFid.csv / Auditoria_ArcaFid.json
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -2024,8 +2088,10 @@ function drawChart() {
   const botY = h * 0.76;
   const botH = h - botY - 10;
 
+  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+
   // Background Gridlines Upper
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
+  ctx.strokeStyle = isLight ? 'rgba(0, 0, 0, 0.05)' : 'rgba(255, 255, 255, 0.04)';
   ctx.lineWidth = 1;
   for (let y = 20; y < topH; y += 40) {
     ctx.beginPath();
@@ -2035,7 +2101,7 @@ function drawChart() {
   }
 
   // Drawdown Baseline
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+  ctx.strokeStyle = isLight ? 'rgba(0, 0, 0, 0.08)' : 'rgba(255, 255, 255, 0.08)';
   ctx.beginPath();
   ctx.moveTo(0, botY);
   ctx.lineTo(w, botY);
@@ -2051,17 +2117,22 @@ function drawChart() {
   ctx.stroke();
   ctx.setLineDash([]);
 
-  ctx.fillStyle = '#71717a';
+  ctx.fillStyle = isLight ? '#52525b' : '#71717a';
   ctx.font = '9px "JetBrains Mono"';
   ctx.fillText("CERROJO FIDUCIARIO DE DRAWDOWN (LÍMITE -6.4%)", 12, botY + 12);
 
   const getX = (i) => (i / (n - 1)) * (w - 40) + 20;
   const getY = (v) => topH - ((v - minV) / (maxV - minV)) * (topH - 25);
 
-  // Fill Gradient under Strategy (Monochrome Soft Gradient)
+  // Fill Gradient under Strategy (Monochrome / Institutional Blue Soft Gradient)
   const grad = ctx.createLinearGradient(0, 0, 0, topH);
-  grad.addColorStop(0, 'rgba(244, 244, 245, 0.08)');
-  grad.addColorStop(1, 'rgba(244, 244, 245, 0.0)');
+  if (isLight) {
+    grad.addColorStop(0, 'rgba(37, 99, 235, 0.12)');
+    grad.addColorStop(1, 'rgba(37, 99, 235, 0.0)');
+  } else {
+    grad.addColorStop(0, 'rgba(244, 244, 245, 0.08)');
+    grad.addColorStop(1, 'rgba(244, 244, 245, 0.0)');
+  }
 
   ctx.beginPath();
   ctx.moveTo(getX(0), getY(vals[0]));
@@ -2078,16 +2149,16 @@ function drawChart() {
   // SPY Benchmark (Dashed Muted Grey)
   ctx.beginPath();
   ctx.setLineDash([4, 4]);
-  ctx.strokeStyle = '#71717a';
+  ctx.strokeStyle = isLight ? '#94a3b8' : '#71717a';
   ctx.lineWidth = 1.5;
   ctx.moveTo(getX(0), getY(spy[0]));
   for (let i = 1; i < n; i++) ctx.lineTo(getX(i), getY(spy[i]));
   ctx.stroke();
   ctx.setLineDash([]);
 
-  // Strategy Equity Line (Solid Crisp White)
+  // Strategy Equity Line (Solid Crisp White in Dark, Institutional Blue in Light)
   ctx.beginPath();
-  ctx.strokeStyle = '#f4f4f5';
+  ctx.strokeStyle = isLight ? '#2563eb' : '#f4f4f5';
   ctx.lineWidth = 2.0;
   ctx.moveTo(getX(0), getY(vals[0]));
   for (let i = 1; i < n; i++) {
@@ -2101,14 +2172,14 @@ function drawChart() {
     const x = getX(i);
     const ddVal = Math.abs(dds[i]);
     const barHeight = Math.min(botH, (ddVal / 10.0) * botH);
-    ctx.fillStyle = ddVal > 5.0 ? 'rgba(239, 68, 68, 0.5)' : 'rgba(255, 255, 255, 0.2)';
+    ctx.fillStyle = ddVal > 5.0 ? 'rgba(239, 68, 68, 0.5)' : (isLight ? 'rgba(0, 0, 0, 0.15)' : 'rgba(255, 255, 255, 0.2)');
     ctx.fillRect(x - 4, botY + 2, 8, barHeight);
   }
 
   // Crosshair & Tooltip
   const tip = document.getElementById('chartTooltip');
   if (mouseX > 15 && mouseX < w - 15) {
-    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    ctx.strokeStyle = isLight ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.2)';
     ctx.setLineDash([2, 2]);
     ctx.beginPath();
     ctx.moveTo(mouseX, 10);
@@ -2126,27 +2197,35 @@ function drawChart() {
     const curX = getX(nearestIdx);
     const curY = getY(vals[nearestIdx]);
 
-    ctx.fillStyle = '#f4f4f5';
+    ctx.fillStyle = isLight ? '#2563eb' : '#f4f4f5';
     ctx.beginPath();
     ctx.arc(curX, curY, 4, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = '#09090b';
+    ctx.strokeStyle = isLight ? '#ffffff' : '#09090b';
     ctx.lineWidth = 1.5;
     ctx.stroke();
 
     if (tip) {
       tip.style.display = 'block';
+      tip.style.background = isLight ? '#ffffff' : '#111215';
+      tip.style.borderColor = isLight ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.14)';
+      tip.style.color = isLight ? '#09090b' : '#f4f4f5';
+      tip.style.boxShadow = isLight ? '0 4px 12px rgba(0,0,0,0.08)' : 'none';
       const tipX = Math.min(w - 180, Math.max(10, mouseX + 12));
       const tipY = Math.max(10, curY - 70);
       tip.style.left = tipX + 'px';
       tip.style.top = tipY + 'px';
       const pnlPct = (((vals[nearestIdx] - vals[0]) / vals[0]) * 100).toFixed(1);
       const sym = fxSymbols[currentCurrency] || '$';
+      const titleColor = isLight ? '#09090b' : '#ffffff';
+      const borderBottom = isLight ? '1px solid rgba(0,0,0,0.08)' : '1px solid rgba(255,255,255,0.1)';
+      const navColor = isLight ? '#2563eb' : '#f4f4f5';
+      const mutedColor = isLight ? '#52525b' : '#a1a1aa';
       tip.innerHTML = `
-        <div style="color:#fff; font-weight:700; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:3px; margin-bottom:4px;">${data.labels[nearestIdx]}</div>
-        <div>NAV: <b style="color:#f4f4f5;">${sym}${fmt(vals[nearestIdx], currentCurrency==='BTC'?4:2)}</b> (+${pnlPct}%)</div>
-        <div>SPY: <span style="color:#a1a1aa;">${sym}${fmt(spy[nearestIdx], currentCurrency==='BTC'?4:2)}</span></div>
-        <div>DD: <span style="color:${dds[nearestIdx] <= -6.0 ? '#f43f5e' : '#a1a1aa'};">${dds[nearestIdx]}%</span></div>
+        <div style="color:${titleColor}; font-weight:700; border-bottom:${borderBottom}; padding-bottom:3px; margin-bottom:4px;">${data.labels[nearestIdx]}</div>
+        <div>NAV: <b style="color:${navColor};">${sym}${fmt(vals[nearestIdx], currentCurrency==='BTC'?4:2)}</b> (+${pnlPct}%)</div>
+        <div>SPY: <span style="color:${mutedColor};">${sym}${fmt(spy[nearestIdx], currentCurrency==='BTC'?4:2)}</span></div>
+        <div>DD: <span style="color:${dds[nearestIdx] <= -6.0 ? '#f43f5e' : mutedColor};">${dds[nearestIdx]}%</span></div>
       `;
     }
   } else if (tip) {
@@ -2239,6 +2318,7 @@ async function syncLiveTicker() {
   } catch (e) {}
 }
 
+initTheme();
 drawChart();
 runSim();
 syncLiveTicker();
@@ -2437,7 +2517,7 @@ class InstitutionalPortalHandler(AppDashboardHandler):
             self._send_json({
                 "status": "ready",
                 "endpoint": path,
-                "protocol": "Aethelgard Fiduciary API",
+                "protocol": "ArcaFid Fiduciary API",
                 "method_required": "POST",
                 "description": "Endpoint activo para conciliación de transacciones y custodia no custodial.",
             })
@@ -2498,7 +2578,9 @@ class InstitutionalPortalHandler(AppDashboardHandler):
         tracker.close()
 
         res = {
-            "agency_name": "Aethelgard Quantitative Capital",
+            "agency_name": "ArcaFid Quantitative Capital",
+            "legacy_agency_name": "Aethelgard Quantitative Capital",
+            "brand": "ArcaFid Quantitative",
             "sharpe_ratio": 2.42,
             "sortino_ratio": 3.10,
             "win_rate_pct": stats.get("win_rate_pct", 78.5),
@@ -2512,7 +2594,7 @@ class InstitutionalPortalHandler(AppDashboardHandler):
     def _handle_api_portfolio(self) -> None:
         parsed = urlparse(self.path)
         params = parse_qs(parsed.query)
-        email = params.get("email", ["investor@aethelgard.com"])[0]
+        email = params.get("email", ["investor@arcafid.com"])[0]
 
         cfg: BotConfig = getattr(self.server, "cfg", BotConfig.from_env())
         user_name = "Alejandro Dupont"
@@ -2709,7 +2791,7 @@ class InstitutionalPortalHandler(AppDashboardHandler):
         try:
             pdf_path = PDFReportGenerator.generate_investor_report(
                 user_name="Inversor Institucional",
-                email="investor@aethelgard.com",
+                email="investor@arcafid.com",
                 trades=trades_sample,
                 initial_balance=10000.0,
                 performance_fee_pct=0.20,
@@ -2732,7 +2814,7 @@ class InstitutionalPortalHandler(AppDashboardHandler):
 
         self.send_response(200)
         self.send_header("Content-Type", "application/pdf")
-        self.send_header("Content-Disposition", "inline; filename=Certificado_Auditoria_Aethelgard.pdf")
+        self.send_header("Content-Disposition", "inline; filename=ARCAFID_QUANTITATIVE_AUDIT.pdf")
         self.send_header("Content-Length", str(len(pdf_data)))
         self.end_headers()
         try:
@@ -2753,7 +2835,7 @@ class InstitutionalPortalHandler(AppDashboardHandler):
         try:
             self.send_response(200)
             self.send_header("Content-Type", "text/csv; charset=utf-8")
-            self.send_header("Content-Disposition", 'attachment; filename="Libro_Mayor_Auditoria_Aethelgard.csv"')
+            self.send_header("Content-Disposition", 'attachment; filename="arcafid_ledger.csv"')
             self.send_header("Content-Length", str(len(csv_bytes)))
             self.end_headers()
             self.wfile.write(csv_bytes)
@@ -2762,7 +2844,8 @@ class InstitutionalPortalHandler(AppDashboardHandler):
 
     def _handle_report_json(self) -> None:
         report = {
-            "syndicate": "Aethelgard Quantitative Asset Management",
+            "syndicate": "ArcaFid Quantitative Asset Management",
+            "legacy_syndicate": "Aethelgard Quantitative Asset Management",
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "fiduciary_standard": "Pure Mathematical Discretion & Multi-Broker DMA",
             "telemetry": {
@@ -2802,7 +2885,7 @@ def run_institutional_portal(
 
     url = f"http://{host}:{port}"
     print("\n" + "=" * 60)
-    print("[PORTAL INSTITUCIONAL] Aethelgard Quantitative Capital")
+    print("[PORTAL INSTITUCIONAL] ArcaFid Quantitative Capital")
     print(f"[PORTAL INSTITUCIONAL] Acceso Inversores: {url}")
     print(f"[PORTAL INSTITUCIONAL] Terminal Operador: {url}/admin")
     print("=" * 60 + "\n")

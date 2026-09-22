@@ -23,13 +23,14 @@ class OrderState(str, Enum):
     UNHEDGED_CRITICAL = "UNHEDGED_CRITICAL"
 
 
-def generate_client_order_id(symbol: str, action: str, timestamp_ms: int | None = None) -> str:
-    """Format: AETH_{symbol}_{timestamp_ms}_{action[:4]} (len <= 36)."""
+def generate_client_order_id(symbol: str, action: str, timestamp_ms: int | None = None, prefix: str | None = None) -> str:
+    """Format: ARCA_{symbol}_{timestamp_ms}_{action[:4]} (len <= 36)."""
     if timestamp_ms is None:
         timestamp_ms = int(time.time() * 1000)
     clean_sym = symbol.replace("/", "").replace("-", "").replace("_", "").upper()
     act = action[:4].upper()
-    client_id = f"AETH_{clean_sym}_{timestamp_ms}_{act}"
+    pfx = prefix if prefix is not None else os.getenv("CLIENT_ORDER_ID_PREFIX", "ARCA_")
+    client_id = f"{pfx}{clean_sym}_{timestamp_ms}_{act}"
     return client_id[:36]
 
 

@@ -54,6 +54,71 @@ def _interval_to_minutes(interval: str) -> int:
     raise ValueError(f"Unsupported interval: {interval}")
 
 
+def is_us_market_open(now_utc: datetime | None = None) -> bool:
+    """Returns True if US Equity market is in Regular Trading Hours (09:30 - 16:00 ET, Mon-Fri)."""
+    from datetime import time as dtime, timedelta, timezone
+    now = now_utc or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    try:
+        from zoneinfo import ZoneInfo
+        et = now.astimezone(ZoneInfo("America/New_York"))
+    except Exception:
+        et = now - timedelta(hours=5)
+    if et.weekday() >= 5:
+        return False
+    return dtime(9, 30) <= et.time() < dtime(16, 0)
+
+
+def trigger_dual_broker_cancellation(
+    binance_client: Any = None,
+    ibkr_client: Any = None,
+    crypto_symbols: list[str] | None = None,
+    stock_symbols: list[str] | None = None,
+) -> dict[str, Any]:
+    """
+    On fiduciary circuit breaker breach (-6.4%), executes emergency cancellation
+    of pending non-protective orders across both Binance and IBKR venues.
+    Preserves Stop-Loss protective orders intact.
+    """
+    results: dict[str, Any] = {"binance": {}, "ibkr": {}}
+
+    # 1. Binance cancellation across 8 crypto assets
+    if binance_client is not None:
+        syms = crypto_symbols or [
+            "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT",
+            "XRPUSDT", "LINKUSDT", "AVAXUSDT", "SUIUSDT",
+        ]
+        for sym in syms:
+            try:
+                if hasattr(binance_client, "get_open_orders") and hasattr(binance_client, "cancel_order"):
+                    orders = binance_client.get_open_orders(sym)
+                    cancelled = []
+                    for o in orders:
+                        otype = str(o.get("type", "")).upper()
+                        # Preserve Stop-Loss protective orders
+                        if "STOP" not in otype:
+                            oid = o.get("orderId")
+                            binance_client.cancel_order(sym, order_id=oid)
+                            cancelled.append(oid)
+                    results["binance"][sym] = cancelled
+            except Exception as b_err:
+                logger.warning("Error cancelling Binance orders for %s: %s", sym, b_err)
+
+    # 2. IBKR cancellation across 6 stock/ETF assets
+    if ibkr_client is not None:
+        try:
+            if hasattr(ibkr_client, "ib") and hasattr(ibkr_client.ib, "reqGlobalCancel"):
+                ibkr_client.ib.reqGlobalCancel()
+                results["ibkr"]["global_cancel"] = True
+            elif hasattr(ibkr_client, "cancel_all_orders"):
+                results["ibkr"] = ibkr_client.cancel_all_orders()
+        except Exception as i_err:
+            logger.warning("Error cancelling IBKR orders: %s", i_err)
+
+    return results
+
+
 def validate_pre_trade_slippage(
     order_book: dict[str, Any],
     expected_price: float,
@@ -142,6 +207,98 @@ class RiskManager:
             or getattr(cfg, "global_trading_state_file", None)
             or os.path.join(tempfile.gettempdir(), "global_trading_state.json")
         )
+        self.binance_client: Any = None
+        self.ibkr_client: Any = None
+
+    def _persist_circuit_breaker_lock(self, drawdown: float, current_ts: float | None = None) -> None:
+        """Persists fiduciary circuit breaker lock across shared state, SQLite, and triggers dual-broker cancel."""
+        if current_ts is None:
+            current_ts = time.time()
+
+        # 1. Update shared state file
+        try:
+            shared_file = self.shared_state_path
+            parent_dir = os.path.dirname(os.path.abspath(shared_file))
+            if parent_dir:
+                os.makedirs(parent_dir, exist_ok=True)
+            loaded: dict[str, Any] = {}
+            if os.path.exists(shared_file):
+                try:
+                    with open(shared_file, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        if isinstance(data, dict):
+                            loaded = data
+                except Exception:
+                    pass
+            loaded["paused"] = True
+            loaded["status"] = CircuitBreakerStatus.LOCKED_DEFENSIVE.value
+            loaded["drawdown"] = drawdown
+            loaded["timestamp"] = current_ts
+            with open(shared_file, "w", encoding="utf-8") as f:
+                json.dump(loaded, f, indent=2)
+        except Exception as write_err:
+            logger.debug("Error writing shared state circuit breaker lock: %s", write_err)
+
+        # 2. Sync with SQLite bot_state table
+        db_path = getattr(self.cfg, "event_db_path", None)
+        if db_path:
+            try:
+                parent_dir = os.path.dirname(os.path.abspath(db_path))
+                if parent_dir:
+                    os.makedirs(parent_dir, exist_ok=True)
+                import sqlite3
+                with sqlite3.connect(db_path, timeout=2.0) as conn:
+                    cur = conn.cursor()
+                    cur.execute(
+                        "CREATE TABLE IF NOT EXISTS bot_state ("
+                        "key TEXT PRIMARY KEY, updated_ts TEXT, value_json TEXT)"
+                    )
+                    cb_payload = json.dumps({
+                        "status": CircuitBreakerStatus.LOCKED_DEFENSIVE.value,
+                        "paused": True,
+                        "drawdown": drawdown,
+                        "reason": f"drawdown consolidado {drawdown:.2%}",
+                        "timestamp": current_ts,
+                    })
+                    cur.execute(
+                        "INSERT INTO bot_state (key, updated_ts, value_json) VALUES ('circuit_breaker:global', datetime('now'), ?) "
+                        "ON CONFLICT(key) DO UPDATE SET updated_ts=datetime('now'), value_json=excluded.value_json",
+                        (cb_payload,),
+                    )
+                    conn.commit()
+            except Exception as db_err:
+                logger.debug("Error sincronizando circuit breaker con SQLite: %s", db_err)
+
+        # 3. Trigger emergency cancel-all on both brokers
+        trigger_dual_broker_cancellation(
+            binance_client=self.binance_client,
+            ibkr_client=self.ibkr_client,
+        )
+
+    def check_consolidated_circuit_breaker(
+        self, binance_equity: float, ibkr_equity: float, baseline_equity: float
+    ) -> tuple[bool, str]:
+        """
+        Consolidated -6.4% fiduciary drawdown circuit breaker across combined Binance + IBKR equity.
+        Equity_consolidated = binance_equity + ibkr_equity
+        Drawdown = (Equity_consolidated - baseline_equity) / baseline_equity
+        """
+        consolidated = binance_equity + ibkr_equity
+        if baseline_equity <= 0:
+            if consolidated <= 0:
+                self.state.circuit_breaker_status = CircuitBreakerStatus.LOCKED_DEFENSIVE
+                self.state.circuit_breaker_paused = True
+                return False, "circuit_breaker_locked_defensive: non_positive_equity"
+            baseline_equity = consolidated
+
+        drawdown = (consolidated - baseline_equity) / baseline_equity
+        if drawdown <= self.FIDUCIARY_DRAWDOWN_LIMIT:
+            self.state.circuit_breaker_status = CircuitBreakerStatus.LOCKED_DEFENSIVE
+            self.state.circuit_breaker_paused = True
+            self._persist_circuit_breaker_lock(drawdown)
+            return False, f"fiduciary_drawdown_limit_breached: consolidated drawdown {drawdown:.2%} <= {self.FIDUCIARY_DRAWDOWN_LIMIT:.1%}"
+
+        return True, "ok"
 
     def sync_day(self, now: datetime, equity: float) -> None:
         if self.state.day_anchor is None or self.state.day_start_equity <= 0:
@@ -176,6 +333,7 @@ class RiskManager:
             if bot_dd <= self.FIDUCIARY_DRAWDOWN_LIMIT:
                 self.state.circuit_breaker_status = CircuitBreakerStatus.LOCKED_DEFENSIVE
                 self.state.circuit_breaker_paused = True
+                self._persist_circuit_breaker_lock(bot_dd)
                 return False, f"circuit_breaker_locked_defensive: fiduciary drawdown limit {self.FIDUCIARY_DRAWDOWN_LIMIT:.1%} breached ({bot_dd:.2%})"
 
         # 3. Consolidated cross-bot circuit breaker check via decoupled shared state
@@ -198,7 +356,7 @@ class RiskManager:
             for bid in state.get("bots", {}):
                 state["bots"][bid]["start_equity"] = state["bots"][bid].get("current_equity", 0.0)
 
-        is_ibkr = any(sym in self.cfg.symbol for sym in ("AAPL", "TSLA", "MSFT", "NVDA", "SPY", "QQQ"))
+        is_ibkr = any(sym in self.cfg.symbol for sym in ("AAPL", "AMZN", "MSFT", "NVDA", "SPY", "QQQ"))
         bot_id = f"{'ibkr' if is_ibkr else 'binance'}_{self.cfg.symbol}"
 
         bot_data = state.get("bots", {}).get(bot_id, {})
@@ -221,8 +379,14 @@ class RiskManager:
         total_start = 0.0
         total_current = 0.0
         current_ts = time.time()
+        is_stock_closed = not is_us_market_open()
         for bid, data in state["bots"].items():
-            if current_ts - data.get("timestamp", 0) < 900:
+            age = current_ts - data.get("timestamp", 0)
+            is_stock = bid.startswith("ibkr_") or any(
+                sym in bid for sym in ("AAPL", "AMZN", "MSFT", "NVDA", "SPY", "QQQ")
+            )
+            # Do not expire equity records after 900 seconds if the market is closed; maintain last known equity.
+            if age < 900 or (is_stock and is_stock_closed) or data.get("persistent", False):
                 total_start += data.get("start_equity", 0.0)
                 total_current += data.get("current_equity", 0.0)
 
@@ -231,6 +395,7 @@ class RiskManager:
             global_drawdown = (total_current - total_start) / total_start
             if global_drawdown <= self.FIDUCIARY_DRAWDOWN_LIMIT:
                 state["paused"] = True
+                self._persist_circuit_breaker_lock(global_drawdown, current_ts)
             elif state.get("paused", False) and global_drawdown > self.FIDUCIARY_DRAWDOWN_LIMIT:
                 state["paused"] = False
 
@@ -245,8 +410,11 @@ class RiskManager:
 
         # 4. Sync with SQLite bot_state table if available
         db_path = getattr(self.cfg, "event_db_path", None)
-        if db_path and os.path.exists(db_path):
+        if db_path:
             try:
+                parent_dir = os.path.dirname(os.path.abspath(db_path))
+                if parent_dir:
+                    os.makedirs(parent_dir, exist_ok=True)
                 import sqlite3
                 with sqlite3.connect(db_path, timeout=2.0) as conn:
                     cur = conn.cursor()

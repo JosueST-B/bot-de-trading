@@ -26,10 +26,10 @@ def sync_static_mirrors() -> tuple[str, str]:
 
     os.makedirs(os.path.dirname(docs_path), exist_ok=True)
 
-    with open(index_path, "w", encoding="utf-8") as f:
+    with open(index_path, "w", encoding="utf-8", newline="\n") as f:
         f.write(INSTITUTIONAL_PORTAL_HTML)
 
-    with open(docs_path, "w", encoding="utf-8") as f:
+    with open(docs_path, "w", encoding="utf-8", newline="\n") as f:
         f.write(INSTITUTIONAL_PORTAL_HTML)
 
     return index_path, docs_path

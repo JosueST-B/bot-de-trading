@@ -75,7 +75,7 @@ class BotConfig:
     telegram_notify_autotune: bool = True
     telegram_notify_errors: bool = True
 
-    active_symbols: str = "BTCUSDT"
+    active_symbols: str = "BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,LINKUSDT,AVAXUSDT,SUIUSDT"
     auto_tune_enabled: bool = False
     auto_tune_interval_hours: int = 24
     dynamic_timeframe_enabled: bool = True
@@ -124,11 +124,12 @@ class BotConfig:
     ibkr_host: str = "127.0.0.1"
     ibkr_port: int = 4002  # Gateway paper por defecto (live: 4001; TWS: 7497/7496)
     ibkr_client_id: int = 17
-    ibkr_symbols: str = "SPY"
+    ibkr_symbols: str = "NVDA,AAPL,MSFT,AMZN,SPY,QQQ"
     ibkr_interval: str = "15m"
     ibkr_allow_real_trading: bool = False
     ibkr_max_quote_per_trade: float = 25.0
     ibkr_use_delayed_data: bool = True
+    ibkr_standby_cash: float = 10000.0
 
     @property
     def symbols_to_trade(self) -> list[str]:
@@ -148,6 +149,15 @@ class BotConfig:
 
     @classmethod
     def from_env(cls) -> "BotConfig":
+        active_syms = os.getenv("ACTIVE_SYMBOLS", "").strip()
+        legacy_syms = "BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,ADAUSDT,XRPUSDT,DOGEUSDT,LINKUSDT,AVAXUSDT,DOTUSDT"
+        if not active_syms or active_syms == legacy_syms:
+            active_syms = cls.active_symbols
+
+        ibkr_syms = os.getenv("IBKR_SYMBOLS", "").strip()
+        if not ibkr_syms or ibkr_syms == "SPY":
+            ibkr_syms = cls.ibkr_symbols
+
         return cls(
             symbol=os.getenv("SYMBOL", cls.symbol),
             interval=os.getenv("INTERVAL", cls.interval),
@@ -241,7 +251,7 @@ class BotConfig:
             telegram_notify_sells=_as_bool(os.getenv("TELEGRAM_NOTIFY_SELLS"), cls.telegram_notify_sells),
             telegram_notify_autotune=_as_bool(os.getenv("TELEGRAM_NOTIFY_AUTOTUNE"), cls.telegram_notify_autotune),
             telegram_notify_errors=_as_bool(os.getenv("TELEGRAM_NOTIFY_ERRORS"), cls.telegram_notify_errors),
-            active_symbols=os.getenv("ACTIVE_SYMBOLS", os.getenv("SYMBOL", cls.active_symbols)),
+            active_symbols=active_syms,
             auto_tune_enabled=_as_bool(os.getenv("AUTO_TUNE_ENABLED"), cls.auto_tune_enabled),
             auto_tune_interval_hours=int(os.getenv("AUTO_TUNE_INTERVAL_HOURS", str(cls.auto_tune_interval_hours))),
             dynamic_timeframe_enabled=_as_bool(os.getenv("DYNAMIC_TIMEFRAME_ENABLED"), cls.dynamic_timeframe_enabled),
@@ -304,7 +314,7 @@ class BotConfig:
             ibkr_host=os.getenv("IBKR_HOST", cls.ibkr_host),
             ibkr_port=int(os.getenv("IBKR_PORT", cls.ibkr_port)),
             ibkr_client_id=int(os.getenv("IBKR_CLIENT_ID", cls.ibkr_client_id)),
-            ibkr_symbols=os.getenv("IBKR_SYMBOLS", cls.ibkr_symbols),
+            ibkr_symbols=ibkr_syms,
             ibkr_interval=os.getenv("IBKR_INTERVAL", cls.ibkr_interval),
             ibkr_allow_real_trading=_as_bool(
                 os.getenv("IBKR_ALLOW_REAL_TRADING"), cls.ibkr_allow_real_trading
@@ -314,5 +324,8 @@ class BotConfig:
             ),
             ibkr_use_delayed_data=_as_bool(
                 os.getenv("IBKR_USE_DELAYED_DATA"), cls.ibkr_use_delayed_data
+            ),
+            ibkr_standby_cash=float(
+                os.getenv("IBKR_STANDBY_CASH", cls.ibkr_standby_cash)
             ),
         )

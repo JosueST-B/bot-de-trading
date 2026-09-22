@@ -78,7 +78,7 @@ class TestMilestone1ChallengerDOM(unittest.TestCase):
     """Adversarial stress-test for DOM structure, image purge, and branding."""
 
     MANDATORY_BRAND_STRINGS = [
-        "Aethelgard Quantitative",
+        "ArcaFid Quantitative",
         "Mandatos & Estructuras de Inversión",
         "Simulador Cuantitativo de Retornos",
         "Ratio Sharpe",

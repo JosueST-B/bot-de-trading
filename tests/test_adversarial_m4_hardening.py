@@ -68,7 +68,7 @@ class TestAdversarialM4Hardening(unittest.TestCase):
     host: str = "127.0.0.1"
 
     MANDATORY_BRAND_STRINGS = [
-        "Aethelgard Quantitative",
+        "ArcaFid Quantitative",
         "Mandatos & Estructuras de Inversión",
         "Simulador Cuantitativo de Retornos",
         "Ratio Sharpe",
@@ -571,7 +571,7 @@ class TestAdversarialM4Hardening(unittest.TestCase):
         for status, headers, data in results:
             self.assertEqual(status, 200)
             res = json.loads(data.decode("utf-8"))
-            self.assertEqual(res.get("agency_name"), "Aethelgard Quantitative Capital")
+            self.assertEqual(res.get("agency_name"), "ArcaFid Quantitative Capital")
             self.assertEqual(res.get("sharpe_ratio"), 2.42)
             self.assertEqual(res.get("sortino_ratio"), 3.10)
             self.assertEqual(res.get("max_drawdown_pct"), -6.4)
@@ -650,7 +650,7 @@ class TestAdversarialM4Hardening(unittest.TestCase):
             self.assertEqual(status, 200)
             self.assertTrue(headers.get("content-type", "").startswith("application/json"))
             res = json.loads(data.decode("utf-8"))
-            self.assertEqual(res.get("syndicate"), "Aethelgard Quantitative Asset Management")
+            self.assertEqual(res.get("syndicate"), "ArcaFid Quantitative Asset Management")
             self.assertIn("telemetry", res)
             self.assertIn("audited_ledger", res)
 
@@ -681,7 +681,7 @@ class TestAdversarialM4Hardening(unittest.TestCase):
         # Verify server is still healthy and responsive
         status, _, data = self._get("/")
         self.assertEqual(status, 200, "Server must remain responsive after burst load")
-        self.assertIn("Aethelgard Quantitative", data.decode("utf-8"))
+        self.assertIn("ArcaFid Quantitative", data.decode("utf-8"))
 
     # =========================================================================
     # PART 4: ZERO <img> TAGS, ZERO .jpg REFERENCES & ALL 4 BRAND STRINGS

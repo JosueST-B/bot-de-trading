@@ -10,7 +10,7 @@ Adversarially challenges and stress-tests:
    - Rapid failover across 5 Binance mirrors (dynamic health scores, cooldown penalties, earliest expiration fallback).
    - Complete mirror pool exhaustion behavior.
 2. Idempotency Key Generation:
-   - client_order_id format (AETH_{symbol}_{timestamp_ms}_{action[:4]}), <= 36 char Binance limit, sanitization.
+   - client_order_id format (ARCA_{symbol}_{timestamp_ms}_{action[:4]}), <= 36 char Binance limit, sanitization.
    - Deterministic reproducibility and collision analysis under concurrent multi-threaded dispatches.
    - Symbol length truncation boundary analysis (detecting truncation on long symbols).
 3. SQLite Two-Phase Commit (2PC) & State Recovery:
@@ -355,7 +355,7 @@ class TestAdversarialIdempotencyKeys(unittest.TestCase):
     """Adversarial stress-testing of client_order_id generation."""
 
     def test_format_and_length_invariants(self):
-        """Validates format AETH_{symbol}_{timestamp_ms}_{action[:4]} and length <= 36."""
+        """Validates format ARCA_{symbol}_{timestamp_ms}_{action[:4]} and length <= 36."""
         test_cases = [
             ("BTCUSDT", "BUY", 1726584000000),
             ("ETHUSDT", "SELL", 1726584000123),
@@ -367,7 +367,7 @@ class TestAdversarialIdempotencyKeys(unittest.TestCase):
         for sym, act, ts in test_cases:
             cid = generate_client_order_id(sym, act, ts)
             self.assertLessEqual(len(cid), 36, f"Client order ID {cid} exceeds 36 characters")
-            self.assertTrue(cid.startswith("AETH_"), f"Client order ID {cid} missing prefix")
+            self.assertTrue(cid.startswith("ARCA_"), f"Client order ID {cid} missing prefix")
             self.assertTrue(bool(re.match(r"^[A-Za-z0-9_]+$", cid)), f"Client order ID {cid} contains invalid chars")
 
     def test_deterministic_reproducibility(self):
@@ -401,7 +401,7 @@ class TestAdversarialIdempotencyKeys(unittest.TestCase):
         Empirical finding: Symbols longer than 11 characters will cause tail truncation
         at character 36, trimming action[:4] and potentially timestamp digits.
         """
-        # Standard symbol (7 chars): "BTCUSDT" -> "AETH_BTCUSDT_1726584000000_BUY" (len = 30) -> No truncation
+        # Standard symbol (7 chars): "BTCUSDT" -> "ARCA_BTCUSDT_1726584000000_BUY" (len = 30) -> No truncation
         cid_std = generate_client_order_id("BTCUSDT", "BUY", 1726584000000)
         self.assertEqual(len(cid_std), 30)
         self.assertTrue(cid_std.endswith("_BUY"))
@@ -468,7 +468,7 @@ class TestAdversarialTwoPhaseCommit(unittest.TestCase):
                         quantity=0.1,
                         stop_price=59000.0,
                         take_profit_price=62000.0,
-                        client_order_id="AETH_FAIL_TEST",
+                        client_order_id="ARCA_FAIL_TEST",
                         state=OrderState.PENDING_SUBMIT.value,
                         is_active=True,
                     )

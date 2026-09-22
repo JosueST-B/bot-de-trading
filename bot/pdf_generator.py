@@ -41,7 +41,7 @@ class PDFReportGenerator:
         # Encabezado (Logo Textual del Holding)
         pdf.set_font("Helvetica", "B", 18)
         pdf.set_text_color(*c_navy)
-        pdf.cell(0, 10, "BERKSHIRE HATHAWAY QUANT HOLDING", new_x="LMARGIN", new_y="NEXT", align="L")
+        pdf.cell(0, 10, "ARCAFID QUANTITATIVE ASSET MANAGEMENT", new_x="LMARGIN", new_y="NEXT", align="L")
         
         pdf.set_font("Helvetica", "", 10)
         pdf.set_text_color(*c_dark)
