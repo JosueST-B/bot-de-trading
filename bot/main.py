@@ -1152,6 +1152,8 @@ class LiveTrader:
             fee_rate=self.cfg.fee_rate,
         )
         quote_cap = min(self.cash, self.cfg.live_max_quote_per_trade)
+        if quote_free > 0:
+            quote_cap = min(quote_cap, quote_free)
         qty = min(qty, quote_cap / (entry_ref * (1 + self.cfg.fee_rate)))
         qty, qty_reason = self._prepare_live_qty(qty, entry_ref)
         if qty <= 0:
@@ -1923,12 +1925,26 @@ def run_live_loop(
             pass
 
     traders: dict[str, LiveTrader] = {}
-    sales_bot = None
-    traffic_publisher = None
+    tuning_thread: threading.Thread | None = None
+
+    def _trigger_async_auto_tune() -> None:
+        nonlocal tuning_thread
+        if not cfg.auto_tune_enabled:
+            return
+        if tuning_thread is not None and tuning_thread.is_alive():
+            return
+        tuning_thread = threading.Thread(
+            target=perform_auto_tuning,
+            args=(cfg, telemetry, lease_key, lease_owner),
+            daemon=True,
+            name="AutoTuningWorker",
+        )
+        tuning_thread.start()
+        logging.info("Auto-tuning cuantitativo iniciado en hilo secundario (sin bloquear el bucle de trading).")
 
     try:
-        # Ejecutar auto-tuning inicial si corresponde
-        perform_auto_tuning(cfg, telemetry, lease_key=lease_key, lease_owner=lease_owner)
+        # Ejecutar auto-tuning en segundo plano sin retrasar el arranque del loop
+        _trigger_async_auto_tune()
 
         # Inicializar traders para cada símbolo activo
         from dataclasses import replace
@@ -1981,8 +1997,8 @@ def run_live_loop(
             if stop_event.is_set():
                 break
 
-            # Ejecutar auto-tuning periódico si corresponde
-            perform_auto_tuning(cfg, telemetry, lease_key=lease_key, lease_owner=lease_owner)
+            # Ejecutar auto-tuning periódico en segundo plano si corresponde
+            _trigger_async_auto_tune()
 
             if stop_event.is_set():
                 break
