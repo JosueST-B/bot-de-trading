@@ -81,6 +81,11 @@ class BotConfig:
     dynamic_timeframe_enabled: bool = True
     binance_square_enabled: bool = False
     binance_square_api_key: str = ""
+    binance_square_post_interval_hours: float = 2.0
+    binance_square_rate_limit_per_hour: int = 5
+    binance_square_min_cooldown_minutes: int = 15
+    binance_square_min_score: float = 0.72
+    binance_square_dry_run: bool = False
 
     # VIP Signals Commercial Suite (Fase 17)
     telegram_vip_channel_id: str = ""
@@ -257,6 +262,19 @@ class BotConfig:
             dynamic_timeframe_enabled=_as_bool(os.getenv("DYNAMIC_TIMEFRAME_ENABLED"), cls.dynamic_timeframe_enabled),
             binance_square_enabled=_as_bool(os.getenv("BINANCE_SQUARE_ENABLED"), cls.binance_square_enabled),
             binance_square_api_key=os.getenv("BINANCE_SQUARE_API_KEY", ""),
+            binance_square_post_interval_hours=float(
+                os.getenv("BINANCE_SQUARE_POST_INTERVAL_HOURS", str(cls.binance_square_post_interval_hours))
+            ),
+            binance_square_rate_limit_per_hour=int(
+                os.getenv("BINANCE_SQUARE_RATE_LIMIT_PER_HOUR", str(cls.binance_square_rate_limit_per_hour))
+            ),
+            binance_square_min_cooldown_minutes=int(
+                os.getenv("BINANCE_SQUARE_MIN_COOLDOWN_MINUTES", str(cls.binance_square_min_cooldown_minutes))
+            ),
+            binance_square_min_score=float(
+                os.getenv("BINANCE_SQUARE_MIN_SCORE", str(cls.binance_square_min_score))
+            ),
+            binance_square_dry_run=_as_bool(os.getenv("BINANCE_SQUARE_DRY_RUN"), cls.binance_square_dry_run),
             telegram_vip_channel_id=os.getenv("TELEGRAM_VIP_CHANNEL_ID", cls.telegram_vip_channel_id),
             telegram_free_channel_id=os.getenv("TELEGRAM_FREE_CHANNEL_ID", cls.telegram_free_channel_id),
             crypto_payment_wallet_usdt=os.getenv("CRYPTO_PAYMENT_WALLET_USDT", cls.crypto_payment_wallet_usdt),

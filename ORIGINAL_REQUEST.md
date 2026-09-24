@@ -164,3 +164,49 @@ Integrity mode: development
 - [ ] El cerebro ejecutor evalúa de forma asíncrona la canasta de 14 activos híbridos aplicando los filtros de régimen y auto-tuning.
 - [ ] El 100% de la suite de pruebas unitarias y de estrés (183 pruebas actuales + nuevas pruebas de conmutador visual, yfinance e IBKR) pasa limpiamente (`python -m unittest discover tests`).
 
+## 2026-09-24T16:05:09Z
+
+Revolucionar el motor autónomo de publicaciones de Binance Square (`bot/binance_square.py` y `bot/growth_traffic_engine.py`) para generar publicaciones dinámicas, analíticamente exactas y de alta conversión fiduciaria que posicionen el perfil de ArcaFid Quantitative como un referente institucional y maximicen el ROI mediante atracción de seguidores, inversores y suscriptores VIP.
+
+Working directory: C:\Users\USUARIO\bot de trading
+Integrity mode: development
+
+## Requirements
+
+### R1. Motor de Generación de Contenido Dinámico Multiformato
+Implementar en `bot/binance_square.py` y `bot/growth_traffic_engine.py` un generador dinámico de publicaciones con 3 arquetipos de contenido complementarios:
+1. **Alertas Cuantitativas de Setups en Tiempo Real:** Publicaciones activadas ante detecciones de alta convicción del cerebro algorítmico (Composite Score >= 0.72), detallando precio de entrada, objetivos escalonados de Take Profit (TP1, TP2, TP3), Stop Loss técnico y ratio Riesgo/Beneficio (>= 1:2.5).
+2. **Reportes Diarios de Mercado & Flujo Macro:** Resumen ejecutivo de Bitcoin, activos líderes con mayor aceleración (top gainers), régimen de volatilidad y análisis del flujo institucional, con redacción pedagógica, profesional y accesible sin tecnicismos innecesarios.
+3. **Informes de Rendimiento Auditado & Transparencia Fiduciaria:** Publicaciones periódicas de hitos de rendimiento (Win Rate, Profit Factor, cerrojo de Drawdown -6.4%) invitando a auditar el libro mayor.
+
+### R2. Arquitectura de Conversión de Alto ROI y Embudo Institucional
+- Incorporar en cada publicación llamadas a la acción (CTA) profesionales y elegantes hacia los dos pilares del ecosistema ArcaFid:
+  * El Bot Comercial VIP en Telegram (`@AdminVIPSignals` y comando interactivo `/subscribe`).
+  * El Portal Web Institucional y simulador actuarial en vivo (`https://josuest-b.github.io/bot-de-trading/`).
+- Optimizar la presentación visual para el algoritmo de recomendación de Binance Square: estructura limpia con espaciado, jerarquía de viñetas, cifras monetarias claras y etiquetas de alta visibilidad (`#BinanceSquare`, `#TradingCuantitativo`, `#Bitcoin`, `#CryptoTrading`, `#ArcaFid`).
+- Respetar los límites de longitud de caracteres de Binance Square OpenAPI (< 2,000 caracteres) y garantizar textos limpios sin etiquetas HTML no soportadas.
+
+### R3. Programación Inteligente, Persistencia y Prevención Anti-Spam
+- Configurar una frecuencia de publicación controlada y configurable (por defecto cada 2 a 4 horas para análisis de mercado, o disparo inmediato ante señales VIP calificadas) con limitador de tasa (rate-limiting) para proteger la API Key contra bloqueos.
+- Registrar el historial y telemetría de cada publicación enviada en la tabla `events` de SQLite (`bot_events.sqlite3`) para seguimiento de impacto y auditoría.
+- Garantizar que el publicador opere de forma asíncrona o en hilo secundario sin interferir ni congelar el bucle de trading 24/7 en vivo.
+
+## Acceptance Criteria
+
+### Formateo y Generación Dinámica de Contenidos
+- [ ] El generador produce los 3 tipos de publicaciones (Alertas Cuantitativas, Reportes Macro Diarios y Rendimiento Auditado) formateados correctamente y con variables dinámicas en tiempo real (precios, variaciones %, niveles TP/SL).
+- [ ] Todos los textos generados se mantienen por debajo del límite de 2,000 caracteres y utilizan formato Markdown/texto limpio compatible con el OpenAPI de Binance Square.
+- [ ] Cada publicación incluye llamadas a la acción (CTA) orientadas a conversión hacia Telegram VIP y la URL pública de GitHub Pages.
+
+### Resiliencia de Red y API
+- [ ] La clase `BinanceSquarePublisher` valida la presencia y formato de la API Key (`X-Square-OpenAPI-Key`) y maneja respuestas exitosas (`code: "000000"`, `success: true`) y respuestas de error con reintentos limpios y logs sin excepciones no capturadas.
+- [ ] Si la API Key no está configurada o el servicio está deshabilitado en `.env`, el sistema se degrada graciosamente en modo simulación/standby sin interrumpir el funcionamiento del bot.
+
+### Verificación Programática y Suite de Pruebas
+- [ ] Se implementa una suite de pruebas unitarias (`tests/test_binance_square_publisher.py`) con cobertura completa de:
+  * Renderizado correcto de los 3 arquetipos de post.
+  * Verificación de límites de longitud y presencia de enlaces CTA.
+  * Manejo de mocks de la API de Binance Square (éxito, error HTTP 400/429/500, timeout).
+- [ ] La suite de pruebas del proyecto pasa al 100% sin regresiones en las 246 pruebas existentes.
+
+

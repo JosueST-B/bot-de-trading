@@ -99,7 +99,7 @@ class NewsSentimentAnalyzer:
         self._cached_headlines = []
         self._last_fetch_time = None
         
-    def get_sentiment(self, force: bool = False) -> tuple[float, list[dict[str, str]]]:
+    def get_sentiment(self, force: bool = False, allow_network: bool = True) -> tuple[float, list[dict[str, str]]]:
         """Obtiene el sentimiento de noticias, usando caché local si es posible."""
         now = datetime.utcnow()
         if not force and self._last_fetch_time and (now - self._last_fetch_time).total_seconds() < 3600:
@@ -120,8 +120,16 @@ class NewsSentimentAnalyzer:
                         self._cached_headlines = payload.get("headlines", [])
                         self._last_fetch_time = updated_ts
                         return self._cached_score, self._cached_headlines
+                    elif not allow_network:
+                        # Si expiró pero no se permite red, usar caché existente para no bloquear
+                        self._cached_score = float(payload.get("score", 0.0))
+                        self._cached_headlines = payload.get("headlines", [])
+                        return self._cached_score, self._cached_headlines
             except Exception:
                 pass
+
+        if not allow_network:
+            return self._cached_score, self._cached_headlines
 
         # Si no hay caché o expiró, descargar de la red
         items = fetch_latest_news(self.url)

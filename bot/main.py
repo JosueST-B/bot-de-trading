@@ -1672,7 +1672,7 @@ def perform_auto_tuning(
     # Enviar reporte a Binance Square si está activo
     if tuned_summary and cfg.binance_square_enabled:
         try:
-            from bot.binance_square import BinanceSquarePublisher
+            from bot.growth_traffic_engine import enqueue_square_post
             from bot.news_sentiment import NewsSentimentAnalyzer
             
             news_analyzer = NewsSentimentAnalyzer(cfg.event_db_path)
@@ -1689,7 +1689,6 @@ def perform_auto_tuning(
             if headlines:
                 headline_str = "\nTitulares destacados que estoy vigilando:\n" + "\n".join([f"• {h['title']}" for h in headlines[:2]])
 
-            publisher = BinanceSquarePublisher(cfg)
             msg = (
                 f"[REPORTE CUANTITATIVO DIARIO] ESTRATEGIA Y COBERTURA TÉCNICA\n\n"
                 f"Apertura de jornada y revisión del mapa de liquidez global. Tras analizar el comportamiento de las principales monedas y los niveles de volatilidad implícita, hemos recalibrado los algoritmos de cobertura técnica y los umbrales de entrada para optimizar la relación riesgo/beneficio:\n\n"
@@ -1700,27 +1699,34 @@ def perform_auto_tuning(
                 + headline_str + "\n\n"
                 f"La paciencia y la disciplina en la ejecución siguen siendo nuestras mayores ventajas estadísticas. Operen siempre bajo un plan de control de riesgo estricto."
             )
-            publisher.publish_post(msg)
+            enqueue_square_post(
+                msg,
+                is_priority=False,
+                metadata={"archetype": "recalibration_summary", "source": "auto_tune_cycle"},
+                cfg=cfg,
+            )
         except Exception as e:
             logging.error(f"Error al enviar reporte de auto-tuning a Binance Square: {e}")
+
+run_auto_tune_cycle = perform_auto_tuning
 
 
 def _publish_live_event_to_square(cfg: BotConfig, symbol: str, event: dict[str, Any]) -> None:
     if not cfg.binance_square_enabled:
         return
     try:
-        from bot.binance_square import BinanceSquarePublisher
+        from bot.binance_square import BinanceSquareContentGenerator, sanitize_for_square
+        from bot.growth_traffic_engine import enqueue_square_post
         from bot.news_sentiment import NewsSentimentAnalyzer
         
-        publisher = BinanceSquarePublisher(cfg)
-        
         event_name = event.get("event")
-        price = event.get("price", 0.0)
-        qty = event.get("qty", 0.0)
-        stop = event.get("stop", 0.0)
-        take = event.get("take", 0.0)
-        reason = event.get("reason", "unknown")
-        strategy_mode = event.get("strategy_mode", cfg.strategy_mode)
+        price = float(event.get("price", 0.0))
+        qty = float(event.get("qty", 0.0))
+        stop = float(event.get("stop", 0.0))
+        take = float(event.get("take", 0.0))
+        reason = str(event.get("reason", "unknown"))
+        strategy_mode = str(event.get("strategy_mode", cfg.strategy_mode))
+        composite_score = float(event.get("composite_score", event.get("quality", 0.75)))
         
         # Mapeo de descripción humana y profesional de la estrategia
         REASON_DESCS = {
@@ -1732,68 +1738,96 @@ def _publish_live_event_to_square(cfg: BotConfig, symbol: str, event: dict[str, 
         }
         reason_desc = REASON_DESCS.get(strategy_mode, f"Setup técnico de confirmación en base a {reason}.")
         
-        # Consultar sentimiento de noticias para acompañar la señal
-        news_analyzer = NewsSentimentAnalyzer(cfg.event_db_path)
-        sentiment_score, headlines = news_analyzer.get_sentiment()
-        
-        if sentiment_score > 0.15:
-            sent_desc = "bastante alcista, con noticias muy positivas impulsando al sector"
-            sent_emoji = "Alcista (+{:.2f})".format(sentiment_score)
-        elif sentiment_score < -0.15:
-            sent_desc = "algo bajista por titulares negativos, pero vemos absorción de compra"
-            sent_emoji = "Bajista ({:.2f})".format(sentiment_score)
-        else:
-            sent_desc = "neutral, lo que favorece setups técnicos limpios"
-            sent_emoji = "Neutral ({:.2f})".format(sentiment_score)
-            
+        # Consultar sentimiento de noticias para acompañar la señal (solo caché local / no bloqueante)
+        sent_desc = "neutral, lo que favorece setups técnicos limpios"
+        sent_emoji = "Neutral (0.00)"
         headline_bullet = ""
-        if headlines:
-            headline_bullet = f"\nTitular clave del momento: \"{headlines[0]['title']}\""
+        try:
+            news_analyzer = NewsSentimentAnalyzer(cfg.event_db_path)
+            # Evitar fetch de red síncrono de 15 segundos en el hilo en vivo; solo consultar datos en caché
+            try:
+                sentiment_score, headlines = news_analyzer.get_sentiment(allow_network=False)
+            except TypeError:
+                sentiment_score, headlines = 0.0, []
+                
+            if sentiment_score > 0.15:
+                sent_desc = "bastante alcista, con noticias muy positivas impulsando al sector"
+                sent_emoji = "Alcista (+{:.2f})".format(sentiment_score)
+            elif sentiment_score < -0.15:
+                sent_desc = "algo bajista por titulares negativos, pero vemos absorción de compra"
+                sent_emoji = "Bajista ({:.2f})".format(sentiment_score)
+            else:
+                sent_desc = "neutral, lo que favorece setups técnicos limpios"
+                sent_emoji = "Neutral ({:.2f})".format(sentiment_score)
+                
+            if headlines:
+                headline_bullet = f"\nTitular clave del momento: \"{headlines[0]['title']}\""
+        except Exception as sent_exc:
+            logging.debug("Error leyendo sentimiento para Binance Square: %s", sent_exc)
             
         msg = ""
+        is_priority = False
+        archetype = "live_event"
+
         if event_name == "live_buy":
-            msg = (
-                f"[NOTA DE MERCADO] ENTRADA TÉCNICA EN SPOT (#{symbol})\n\n"
-                f"Hemos ejecutado una orden de entrada en Spot para #{symbol} tras validar un setup cuantitativo de alta probabilidad en temporalidades cortas:\n\n"
-                f"PARÁMETROS OPERATIVOS:\n"
-                f"• Punto de Entrada: {price:.4f} USDT\n"
-                f"• Límite de Pérdida (Stop Loss): {stop:.4f} USDT\n"
-                f"• Objetivo Técnico (Take Profit): {take:.4f} USDT\n"
-                f"• Tamaño de Posición: {qty:.6f}\n\n"
-                f"ANÁLISIS DE ESTRUCTURA Y LIQUIDEZ:\n"
-                f"- {reason_desc}\n"
-                f"- Con respecto al flujo de noticias del sector, detectamos un entorno {sent_desc}."
-                + headline_bullet + "\n\n"
-                f"Operamos de forma metódica y controlando el riesgo en cada ejecución. Gráfico de referencia: https://es.tradingview.com/chart/?symbol=BINANCE:{symbol}"
+            is_priority = True
+            archetype = "quant_setup"
+            diff = abs(price - stop) if (stop > 0 and stop != price) else (price * 0.025)
+            tp1 = take if take > price else (price + diff * 0.75)
+            tp2 = price + (diff * 1.50)
+            tp3 = price + (diff * 2.50)
+            
+            full_thesis = f"{reason_desc} Con respecto al flujo de noticias del sector, detectamos un entorno {sent_desc}.{headline_bullet}"
+            msg = BinanceSquareContentGenerator.generate_quant_setup_post(
+                symbol=symbol,
+                action="BUY",
+                entry_price=price,
+                stop_price=stop,
+                tp1=tp1,
+                tp2=tp2,
+                tp3=tp3,
+                composite_score=max(composite_score, getattr(cfg, "binance_square_min_score", 0.72)),
+                timeframe=getattr(cfg, "interval", "15m"),
+                thesis=full_thesis,
             )
         elif event_name == "live_sell":
-            pnl = event.get("pnl", 0.0)
-            pnl_pct = event.get("pnl_pct", 0.0)
+            archetype = "trade_close"
+            pnl = float(event.get("pnl", 0.0))
+            pnl_pct = float(event.get("pnl_pct", 0.0))
             
-            pnl_title = "[OBJETIVO ALCANZADO] TAKE PROFIT" if pnl >= 0 else "[GESTIÓN DE RIESGO] STOP LOSS"
+            pnl_title = "🎯 [OBJETIVO ALCANZADO] TAKE PROFIT" if pnl >= 0 else "🛡️ [GESTIÓN DE RIESGO] STOP LOSS"
             pnl_desc = "La orden de toma de ganancias se ejecutó en la zona objetivo de liquidez." if pnl >= 0 else "La posición se cerró automáticamente al tocar el límite de riesgo estructural para proteger capital."
             
             if "exit" in reason.lower() or "prematura" in reason.lower() or "trend_or_momentum" in reason.lower() or "target_exit" in reason.lower():
-                pnl_title = "[SALIDA ANTICIPADA] REESTRUCTURACIÓN DE CARTERA"
+                pnl_title = "⚖️ [SALIDA ANTICIPADA] REESTRUCTURACIÓN DE CARTERA"
                 pnl_desc = "Hemos cerrado la posición tras detectar debilidad en el flujo de órdenes y pérdida de momentum en los gráficos."
             
-            msg = (
-                f"[CIERRE DE POSICIÓN] #{symbol}\n\n"
+            raw_msg = (
+                f"**[CIERRE DE POSICIÓN] #{symbol}**\n\n"
                 f"{pnl_title}\n\n"
                 f"{pnl_desc}\n\n"
-                f"DATOS DE SALIDA:\n"
-                f"• Precio de Cierre: {price:.4f} USDT\n"
-                f"• Rendimiento Operación: {pnl_pct:+.2f}% ({pnl:+.4f} USDT)\n"
-                f"• Criterio de Cierre: {reason}\n"
-                f"• Sesgo Sentimiento: {sent_emoji}"
-                + headline_bullet + "\n\n"
-                f"Continuamos monitoreando el mercado en busca del siguiente desequilibrio de liquidez estructural. Gráfico: https://es.tradingview.com/chart/?symbol=BINANCE:{symbol}"
+                f"**DATOS DE SALIDA:**\n"
+                f"• **Precio de Cierre:** {price:.4f} USDT\n"
+                f"• **Rendimiento Operación:** {pnl_pct:+.2f}% ({pnl:+.4f} USDT)\n"
+                f"• **Criterio de Cierre:** {reason}\n"
+                f"• **Sesgo Sentimiento:** {sent_emoji}"
+                f"{headline_bullet}\n\n"
+                f"Continuamos monitoreando el mercado con modelos de preservación de capital.\n\n"
+                f"{BinanceSquareContentGenerator.CTA_TELEGRAM}\n"
+                f"{BinanceSquareContentGenerator.CTA_PORTAL}\n\n"
+                f"{BinanceSquareContentGenerator.HASHTAGS}"
             )
+            msg = sanitize_for_square(raw_msg)
             
         if msg:
-            publisher.publish_post(msg)
+            enqueue_square_post(
+                msg,
+                is_priority=is_priority,
+                metadata={"symbol": symbol, "event": event_name, "archetype": archetype},
+                cfg=cfg,
+            )
     except Exception as e:
-        logging.error(f"Error al enviar publicación de señal en vivo a Binance Square: {e}")
+        logging.error(f"Error al encolar publicación de señal en vivo a Binance Square: {e}")
 
 
 def run_live(cfg: BotConfig, confirm_live: str) -> None:
@@ -1963,13 +1997,24 @@ def run_live_loop(
             except Exception as sexc:
                 logging.warning("No se pudo iniciar bot interactivo de ventas VIP: %s", sexc)
 
+        # Inicializar worker asíncrono de Binance Square
+        if cfg.binance_square_enabled:
+            try:
+                from bot.growth_traffic_engine import get_square_worker
+                sq_worker = get_square_worker(cfg)
+                if sq_worker:
+                    logging.info("Worker asíncrono de Binance Square activo y escuchando cola de publicaciones.")
+            except Exception as sqw_exc:
+                logging.warning("No se pudo iniciar worker de Binance Square: %s", sqw_exc)
+
         # Inicializar generador y publicador autónomo de tráfico y alto ROI
-        if cfg.telegram_enabled:
+        if cfg.telegram_enabled or cfg.binance_square_enabled:
             try:
                 from bot.growth_traffic_engine import AutoTrafficPublisher
+                interval_min = int(getattr(cfg, "binance_square_post_interval_hours", 2.0) * 60)
                 traffic_publisher = AutoTrafficPublisher(cfg)
-                traffic_publisher.start_background_loop(interval_minutes=120)
-                logging.info("Motor Autónomo de Tráfico y Alto ROI activo (publicando cada 120m).")
+                traffic_publisher.start_background_loop(interval_minutes=max(60, interval_min))
+                logging.info("Motor Autónomo de Tráfico y Alto ROI activo (publicando cada %dm).", interval_min)
             except Exception as texc:
                 logging.warning("No se pudo iniciar publicador de tráfico: %s", texc)
 
