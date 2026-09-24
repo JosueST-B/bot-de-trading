@@ -35,13 +35,8 @@ def sanitize_for_square(text: str, max_chars: int = 1950) -> str:
     # Normalizar retornos de carro
     cleaned = text.replace("\r\n", "\n").replace("\r", "\n")
 
-    # Convertir etiquetas HTML de uso común en Markdown limpio
-    cleaned = re.sub(r"<\s*(?:b|strong)\s*>", "**", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"<\s*/\s*(?:b|strong)\s*>", "**", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"<\s*(?:i|em)\s*>", "*", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"<\s*/\s*(?:i|em)\s*>", "*", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"<\s*(?:pre|code)\s*>", "", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"<\s*/\s*(?:pre|code)\s*>", "", cleaned, flags=re.IGNORECASE)
+    # Eliminar etiquetas HTML de formato sin dejar asteriscos ni marcas robóticas
+    cleaned = re.sub(r"<\s*/?\s*(?:b|strong|i|em|pre|code)\s*>", "", cleaned, flags=re.IGNORECASE)
 
     # Convertir enlaces <a href="url">texto</a> -> texto (url) o url
     def _replace_a_tag(match: re.Match[str]) -> str:
@@ -62,6 +57,11 @@ def sanitize_for_square(text: str, max_chars: int = 1950) -> str:
     # preservando expresiones matemáticas comparativas como "Drawdown < -6.4% y Sharpe > 2.0" o "< $50k"
     cleaned = re.sub(r"</?[a-zA-Z][^>]*>", "", cleaned)
 
+    # Eliminar signos robóticos de Markdown (**) y corchetes ([ ]) para lectura natural humana
+    cleaned = re.sub(r"\*+", "", cleaned)
+    cleaned = re.sub(r"\[([^\]]+)\]", r"\1", cleaned)
+    cleaned = cleaned.replace("[", "").replace("]", "")
+
     # Si el texto ya entra en el límite de caracteres, retornar directamente
     if len(cleaned) <= max_chars:
         return cleaned
@@ -69,9 +69,11 @@ def sanitize_for_square(text: str, max_chars: int = 1950) -> str:
     # Si excede max_chars, separar el cuerpo de la sección de pie (CTAs y hashtags)
     # para garantizar que las conversiones comerciales no queden truncadas
     footer_markers = [
+        "📲 Señales",
         "📲 Canal VIP",
         "@AdminVIPSignals",
         "/subscribe",
+        "🏛️ Simulador",
         "🏛️ Portal Institucional",
         "https://josuest-b.github.io/bot-de-trading/",
         "#BinanceSquare",
@@ -110,17 +112,17 @@ def sanitize_for_square(text: str, max_chars: int = 1950) -> str:
 
 
 class BinanceSquareContentGenerator:
-    """Generador dinámico de publicaciones para Binance Square en formato Markdown institucional.
+    """Generador dinámico de publicaciones para Binance Square con redacción profesional natural.
     
     Arquetipos soportados:
-    1. Alertas Cuantitativas de Setups en Tiempo Real ($S_{composite} >= 0.72$).
+    1. Alertas de Setups en Tiempo Real (Score >= 0.72).
     2. Reportes Diarios de Mercado & Flujo Macro (BTC, Top Movers, FinBERT).
     3. Informes de Rendimiento Auditado & Transparencia Fiduciaria (Win Rate, Drawdown Lock).
     """
 
     MAX_CHARS: int = 1950
-    CTA_TELEGRAM: str = "📲 Canal VIP & Señales Cuantitativas: @AdminVIPSignals (Comando /subscribe)"
-    CTA_PORTAL: str = "🏛️ Portal Institucional & Simulador Actuarial: https://josuest-b.github.io/bot-de-trading/"
+    CTA_TELEGRAM: str = "📲 Canal VIP y consultas en Telegram: @AdminVIPSignals (escribe /subscribe)"
+    CTA_PORTAL: str = "🏛️ Portal Institucional y simulador en vivo: https://josuest-b.github.io/bot-de-trading/"
     HASHTAGS: str = "#BinanceSquare #TradingCuantitativo #Bitcoin #CryptoTrading #ArcaFid"
 
     @staticmethod
@@ -153,12 +155,7 @@ class BinanceSquareContentGenerator:
         timeframe: str = "15m",
         thesis: str = "",
     ) -> str:
-        """Genera publicación de setup de alta convicción (Composite Score >= 0.72).
-        
-        Incluye Entry, TP1, TP2, TP3, SL, R:R (>= 1:2.5), Score cuantitativo,
-        tesis de flujo institucional, CTAs fiduciarios y hashtags.
-        """
-        # Calcular ratio Riesgo / Beneficio proyectado frente al target 3
+        """Genera publicación de setup con redacción humana, profesional y sin símbolos robóticos."""
         risk = abs(entry_price - stop_price)
         reward = abs(tp3 - entry_price)
         rr = (reward / risk) if risk > 0 else 2.5
@@ -173,24 +170,24 @@ class BinanceSquareContentGenerator:
         score_str = f"{composite_score:.3f}"
 
         clean_thesis = sanitize_for_square(thesis, max_chars=800) if thesis else (
-            "Validación cuantitativa de momentum con ruptura de volatilidad y confluencia de flujo institucional. "
-            "Gestión de riesgo actuarial aplicada con cerrojo de preservación de capital."
+            "Observamos una entrada de capital clara acompañada de expansión en el volumen y estructura limpia. "
+            "Mantenemos una gestión de riesgo estricta priorizando la preservación de la cartera."
         )
 
         action_display = action.upper() if action else "BUY"
 
         raw_post = (
-            f"⚡ **[ALERTA CUANTITATIVA] SETUP DE ALTA CONVICCIÓN | #{symbol}**\n\n"
-            f"Validación algorítmica de entrada cuantitativa en temporalidad {timeframe}:\n\n"
-            f"• **Acción:** {action_display} (Spot / Cobertura)\n"
-            f"• **Precio de Entrada:** {entry_str} USDT\n"
-            f"• **Stop Loss Técnico:** {stop_str} USDT\n"
-            f"• **Take Profit 1 (40%):** {tp1_str} USDT (Mover SL a Break-Even)\n"
-            f"• **Take Profit 2 (40%):** {tp2_str} USDT\n"
-            f"• **Take Profit 3 (20%):** {tp3_str} USDT (Runner de Expansión)\n"
-            f"• **Ratio Riesgo/Beneficio (R:R):** 1:{rr:.2f}\n"
-            f"• **Composite Alpha Score:** {score_str} (Hurdle Cuantitativo >= 0.72)\n\n"
-            f"**Tesis Cuantitativa & Flujo Institucional:**\n"
+            f"Análisis y oportunidad en #{symbol} (Gráfico de {timeframe})\n\n"
+            f"Comparto el escenario que estamos operando desde la mesa de ArcaFid Quantitative. "
+            f"Detectamos una configuración de compra ({action_display}) muy limpia con relación Riesgo/Beneficio de 1:{rr:.2f} "
+            f"y convicción estadística de {score_str} en nuestro modelo.\n\n"
+            f"Niveles clave de la operación:\n"
+            f"• Entrada de referencia: {entry_str} USDT\n"
+            f"• Stop Loss de protección: {stop_str} USDT\n"
+            f"• Primer objetivo: {tp1_str} USDT (tomamos parcial y protegemos en punto de entrada)\n"
+            f"• Segundo objetivo: {tp2_str} USDT\n"
+            f"• Tercer objetivo: {tp3_str} USDT\n\n"
+            f"Lectura profesional del movimiento:\n"
             f"{clean_thesis}\n\n"
             f"{cls.CTA_TELEGRAM}\n"
             f"{cls.CTA_PORTAL}\n\n"
@@ -208,7 +205,7 @@ class BinanceSquareContentGenerator:
         sentiment_score: float,
         macro_summary: str = "",
     ) -> str:
-        """Genera reporte diario macroeconómico y ranking de flujo de capital institucional."""
+        """Genera reporte diario de mercado con tono de analista senior sin corchetes ni asteriscos."""
         btc_price_str = f"{btc_price:,.2f}"
         btc_chg_str = f"{btc_change_pct:+.2f}%"
         sent_score_str = f"{sentiment_score:+.2f}"
@@ -222,26 +219,28 @@ class BinanceSquareContentGenerator:
                 vol = float(g.get("quote_volume", 0.0))
                 prc_str = cls._format_price(prc)
                 vol_str = f"${vol / 1_000_000.0:.1f}M" if vol >= 1_000_000.0 else f"${vol:,.0f}"
-                gainers_lines.append(f"  {idx}. **#{sym}**: ${prc_str} | **{chg:+.2f}%** (Vol: {vol_str})")
+                gainers_lines.append(f"  {idx}. #{sym}: ${prc_str} ({chg:+.2f}% | Vol: {vol_str})")
         else:
-            gainers_lines.append("  • *Consolidación de liquidez en activos de gran capitalización.*")
+            gainers_lines.append("  • Liquidez concentrada hoy en los activos principales del mercado.")
 
         gainers_block = "\n".join(gainers_lines)
 
         clean_macro = sanitize_for_square(macro_summary, max_chars=700) if macro_summary else (
-            "Flujo institucional neto positivo con acumulación estratégica en niveles de soporte estructural. "
-            "El sesgo de liquidez favorece rotación táctica hacia activos con volumen anómalo y bajo riesgo actuarial."
+            "Flujo institucional neto positivo con acumulación estratégica en zonas de soporte clave. "
+            "El contexto actual favorece buscar entradas selectivas en monedas con volumen real y riesgo controlado."
         )
 
+        clean_sent = sentiment_label.replace("[", "").replace("]", "").replace("*", "").strip()
+
         raw_post = (
-            f"🌐 **[REPORTE MACRO DIARIO & FLUJO INSTITUCIONAL]**\n\n"
-            f"Resumen ejecutivo del ecosistema cripto y posicionamiento algorítmico:\n\n"
-            f"• **Bitcoin (#BTC):** ${btc_price_str} USDT (**{btc_chg_str}**)\n"
-            f"• **Sentimiento FinBERT Cuantitativo:** {sentiment_label} ({sent_score_str})\n\n"
-            f"**ACTIVOS LÍDERES CON MAYOR ACELERACIÓN & FLUJO RELATIVO:**\n"
+            f"Panorama diario del mercado y lectura de liquidez\n\n"
+            f"Así se encuentra hoy el ecosistema cripto desde nuestra mesa de análisis:\n\n"
+            f"• Bitcoin (#BTC): ${btc_price_str} USDT ({btc_chg_str})\n"
+            f"• Sentimiento de mercado (FinBERT): {clean_sent} ({sent_score_str})\n\n"
+            f"Monedas con mayor aceleración y flujo en la jornada:\n"
             f"{gainers_block}\n\n"
-            f"**Tesis Institucional & Flujo de Mercado:**\n"
-            f"«{clean_macro}»\n\n"
+            f"Perspectiva de la sesión:\n"
+            f"{clean_macro}\n\n"
             f"{cls.CTA_TELEGRAM}\n"
             f"{cls.CTA_PORTAL}\n\n"
             f"{cls.HASHTAGS}"
@@ -257,20 +256,17 @@ class BinanceSquareContentGenerator:
         sharpe_ratio: float = 2.42,
         total_trades: int = 142,
     ) -> str:
-        """Genera informe de auditoría histórica, transparencia fiduciaria y métricas auditadas."""
+        """Genera informe de resultados auditados con redacción clara, honesta y profesional."""
         raw_post = (
-            f"📊 **[INFORME DE RENDIMIENTO AUDITADO & TRANSPARENCIA FIDUCIARIA]**\n\n"
-            f"Presentamos la auditoría actuarial del algoritmo ArcaFid Quantitative. "
-            f"Nuestra operativa opera bajo estricta matemática no-custodial y controles de riesgo sistemáticos:\n\n"
-            f"**MÉTRICAS AUDITADAS (HISTÓRICO VERIFICADO):**\n"
-            f"• **Tasa de Acierto (Win Rate):** {win_rate_pct:.1f}%\n"
-            f"• **Factor de Beneficio (Profit Factor):** {profit_factor:.2f}\n"
-            f"• **Cerrojo de Drawdown Fiduciario:** {drawdown_lock_pct:.1f}% (Límite Máximo Estructural)\n"
-            f"• **Ratio de Sharpe Institucional:** {sharpe_ratio:.2f}\n"
-            f"• **Operaciones Totales Auditadas:** {total_trades}\n\n"
-            f"**TRANSPARENCIA INSTITUCIONAL & AUDITORÍA PÚBLICA:**\n"
-            f"Invitamos a toda la comunidad y a nuestros inversores a verificar y auditar el libro mayor (ledger criptográfico) "
-            f"y simular escenarios actuariales en tiempo real en nuestro portal web institucional.\n\n"
+            f"Transparencia y resultados en la gestión de ArcaFid Quantitative\n\n"
+            f"En el trading profesional, cuidar el capital y mantener una estadística consistente vale mucho más que cualquier promesa. "
+            f"Compartimos el balance auditado de nuestra operativa hasta la fecha:\n\n"
+            f"• Tasa de acierto (Win Rate): {win_rate_pct:.1f}%\n"
+            f"• Factor de beneficio (Profit Factor): {profit_factor:.2f}\n"
+            f"• Límite estricto de caída máxima (Drawdown): {drawdown_lock_pct:.1f}%\n"
+            f"• Ratio de Sharpe: {sharpe_ratio:.2f} en {total_trades} operaciones verificadas\n\n"
+            f"Creemos en la transparencia fiduciaria total: cualquier inversor puede revisar nuestro libro mayor auditado "
+            f"y simular proyecciones reales de retorno directamente en nuestro portal web.\n\n"
             f"{cls.CTA_TELEGRAM}\n"
             f"{cls.CTA_PORTAL}\n\n"
             f"{cls.HASHTAGS}"

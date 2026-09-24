@@ -138,15 +138,15 @@ class HuggingFaceSentimentEngine:
     @staticmethod
     def _score_to_label(score: float) -> str:
         if score > 0.35:
-            return "[ALCISTA] Fuerte Presión Compradora / Acumulación"
+            return "Alcista (Fuerte Presión Compradora y Acumulación)"
         elif score > 0.05:
-            return "[ALCISTA] Moderado / Tendencia Positiva"
+            return "Alcista Moderado (Tendencia Positiva)"
         elif score > -0.05:
-            return "[NEUTRAL] Consolidación de Rango"
+            return "Neutral (Consolidación de Rango)"
         elif score > -0.35:
-            return "[BAJISTA] Cautela / Presión Vendedora Moderada"
+            return "Bajista (Cautela y Presión Vendedora Moderada)"
         else:
-            return "[BAJISTA] Extremo / Alta Presión Vendedora"
+            return "Bajista Extremo (Alta Presión Vendedora)"
 
 
 class HighROIScreener:

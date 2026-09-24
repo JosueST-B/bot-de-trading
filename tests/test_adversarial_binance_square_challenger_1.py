@@ -126,19 +126,20 @@ class TestAdversarialHTMLInjectionAndBypasses(unittest.TestCase):
             self.assertNotIn("<body", sanitized.lower())
 
     def test_disallowed_formatting_converted_or_removed(self) -> None:
-        """HTML formatting tags (b, strong, i, em, pre, code) must be converted or stripped."""
-        raw = "<b>Bold</b> <strong>Strong</strong> <i>Italic</i> <em>Em</em> <pre>Code</pre> <code>inline</code>"
+        """HTML formatting tags (b, strong, i, em, pre, code) and robotic ** / [] symbols must be stripped to clean text."""
+        raw = "[ALERTA] <b>Bold</b> <strong>Strong</strong> <i>Italic</i> <em>Em</em> <pre>Code</pre> <code>inline</code> **extra**"
         sanitized = sanitize_for_square(raw)
 
-        # Forbidden HTML tags must not exist in output
-        for tag in ["<b", "</b>", "<strong", "</strong>", "<i", "</i>", "<em", "</em>", "<pre", "</pre>", "<code", "</code>"]:
+        # Forbidden HTML tags and robotic markers (** / * / [ / ]) must not exist in output
+        for tag in ["<b", "</b>", "<strong", "</strong>", "<i", "</i>", "<em", "</em>", "<pre", "</pre>", "<code", "</code>", "**", "*", "[", "]"]:
             self.assertNotIn(tag, sanitized.lower())
 
-        # Converted markdown equivalents should be present
-        self.assertIn("**Bold**", sanitized)
-        self.assertIn("**Strong**", sanitized)
-        self.assertIn("*Italic*", sanitized)
-        self.assertIn("*Em*", sanitized)
+        # Clean plain-text words should be preserved
+        self.assertIn("ALERTA", sanitized)
+        self.assertIn("Bold", sanitized)
+        self.assertIn("Strong", sanitized)
+        self.assertIn("Italic", sanitized)
+        self.assertIn("Em", sanitized)
         self.assertIn("Code", sanitized)
         self.assertIn("inline", sanitized)
 

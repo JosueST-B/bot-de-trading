@@ -1690,14 +1690,12 @@ def perform_auto_tuning(
                 headline_str = "\nTitulares destacados que estoy vigilando:\n" + "\n".join([f"• {h['title']}" for h in headlines[:2]])
 
             msg = (
-                f"[REPORTE CUANTITATIVO DIARIO] ESTRATEGIA Y COBERTURA TÉCNICA\n\n"
-                f"Apertura de jornada y revisión del mapa de liquidez global. Tras analizar el comportamiento de las principales monedas y los niveles de volatilidad implícita, hemos recalibrado los algoritmos de cobertura técnica y los umbrales de entrada para optimizar la relación riesgo/beneficio:\n\n"
-                f"ESTRATEGIAS RECALIBRADAS:\n"
+                f"Actualización de estrategia y cobertura técnica para la sesión de hoy.\n\n"
+                f"Tras revisar el mapa de liquidez global y el comportamiento de la volatilidad en los principales pares, ajustamos los parámetros de entrada en la cartera para mantener la mejor relación riesgo/beneficio en cada activo:\n\n"
                 + "\n".join(tuned_summary) + f"\n\n"
-                f"ANÁLISIS DE SENTIMIENTO & MACRO:\n"
-                f"El sentimiento macro de las noticias se ubica en un plano {sent_emoji} (Sesgo: {sentiment_score:+.2f}).\n"
+                f"En el plano macroeconómico, la lectura de sentimiento en los titulares se mantiene en tono {sent_emoji} (sesgo {sentiment_score:+.2f})."
                 + headline_str + "\n\n"
-                f"La paciencia y la disciplina en la ejecución siguen siendo nuestras mayores ventajas estadísticas. Operen siempre bajo un plan de control de riesgo estricto."
+                f"Seguimos priorizando la paciencia y una ejecución disciplinada en cada zona clave."
             )
             enqueue_square_post(
                 msg,
@@ -1795,24 +1793,23 @@ def _publish_live_event_to_square(cfg: BotConfig, symbol: str, event: dict[str, 
             pnl = float(event.get("pnl", 0.0))
             pnl_pct = float(event.get("pnl_pct", 0.0))
             
-            pnl_title = "🎯 [OBJETIVO ALCANZADO] TAKE PROFIT" if pnl >= 0 else "🛡️ [GESTIÓN DE RIESGO] STOP LOSS"
-            pnl_desc = "La orden de toma de ganancias se ejecutó en la zona objetivo de liquidez." if pnl >= 0 else "La posición se cerró automáticamente al tocar el límite de riesgo estructural para proteger capital."
+            pnl_title = "Objetivo de ganancias alcanzado (Take Profit)" if pnl >= 0 else "Activación de límite de protección (Stop Loss)"
+            pnl_desc = "Acabamos de cerrar la posición asegurando beneficios en nuestra zona objetivo de liquidez." if pnl >= 0 else "La posición se cerró automáticamente en el nivel de invalidación para proteger el capital de la cartera."
             
             if "exit" in reason.lower() or "prematura" in reason.lower() or "trend_or_momentum" in reason.lower() or "target_exit" in reason.lower():
-                pnl_title = "⚖️ [SALIDA ANTICIPADA] REESTRUCTURACIÓN DE CARTERA"
-                pnl_desc = "Hemos cerrado la posición tras detectar debilidad en el flujo de órdenes y pérdida de momentum en los gráficos."
+                pnl_title = "Salida táctica por rotación de flujo"
+                pnl_desc = "Decidimos cerrar la operación de forma anticipada tras detectar pérdida de impulso comprador en las temporalidades menores."
             
             raw_msg = (
-                f"**[CIERRE DE POSICIÓN] #{symbol}**\n\n"
-                f"{pnl_title}\n\n"
+                f"Cierre de operación en #{symbol}: {pnl_title}.\n\n"
                 f"{pnl_desc}\n\n"
-                f"**DATOS DE SALIDA:**\n"
-                f"• **Precio de Cierre:** {price:.4f} USDT\n"
-                f"• **Rendimiento Operación:** {pnl_pct:+.2f}% ({pnl:+.4f} USDT)\n"
-                f"• **Criterio de Cierre:** {reason}\n"
-                f"• **Sesgo Sentimiento:** {sent_emoji}"
+                f"Resumen de la ejecución:\n"
+                f"• Precio de salida: {price:.4f} USDT\n"
+                f"• Resultado neto: {pnl_pct:+.2f}% ({pnl:+.4f} USDT)\n"
+                f"• Motivo técnico: {reason}\n"
+                f"• Entorno de sentimiento: {sent_emoji}"
                 f"{headline_bullet}\n\n"
-                f"Continuamos monitoreando el mercado con modelos de preservación de capital.\n\n"
+                f"Mantenemos la liquidez lista para el próximo setup de alta probabilidad.\n\n"
                 f"{BinanceSquareContentGenerator.CTA_TELEGRAM}\n"
                 f"{BinanceSquareContentGenerator.CTA_PORTAL}\n\n"
                 f"{BinanceSquareContentGenerator.HASHTAGS}"
